@@ -81,13 +81,17 @@ class ParsedEmail:
         body_html: str,
         raw_eml: str,
         has_attachments: bool,
-        attachments: List[dict[str, Any]]
+        attachments: List[dict[str, Any]],
+        forwarded_by: str = "",
+        group_name: str = ""
     ):
         self.message_id = message_id
         self.from_address = from_address
         self.from_name = from_name
         self.to_address = to_address
         self.to_name = to_name
+        self.forwarded_by = forwarded_by
+        self.group_name = group_name
         self.subject = subject
         self.body_text = body_text
         self.body_html = body_html
@@ -95,7 +99,47 @@ class ParsedEmail:
         self.has_attachments = has_attachments
         self.attachments = attachments
 
-def parse_raw_email(raw_content: str | bytes, default_to: str = "") -> ParsedEmail:
+def extract_forwarding_address(msg: Any, to_addr: str) -> str:
+    """
+    智能提取邮件中介转发来源（母账号/转发源，如 iCloud、Gmail、Outlook 等中转邮箱）
+    """
+    # 1. 优先检查 Resent-From (标准客户端规则转发)
+    resent_from = msg.get("Resent-From")
+    if resent_from:
+        _, addr = parseaddr(resent_from)
+        if addr and addr.lower() != to_addr.lower():
+            return addr.strip().lower()
+
+    # 2. 检查 Delivered-To (iCloud、Gmail 规则转发最常保留的原始投递母账号)
+    delivered_to = msg.get("Delivered-To")
+    if delivered_to:
+        _, addr = parseaddr(delivered_to)
+        if addr and addr.lower() != to_addr.lower():
+            return addr.strip().lower()
+        # 如果 delivered_to 存在且是常见的公网转发服务商 (如 icloud.com, me.com, gmail.com)
+        if addr and any(domain in addr.lower() for domain in ["@icloud.com", "@me.com", "@mac.com", "@gmail.com", "@outlook.com", "@qq.com"]):
+            return addr.strip().lower()
+
+    # 3. 检查 X-Original-To / X-Delivered-To
+    for h in ["X-Original-To", "X-Delivered-To", "X-Envelope-To"]:
+        val = msg.get(h)
+        if val:
+            _, addr = parseaddr(val)
+            if addr and addr.lower() != to_addr.lower():
+                return addr.strip().lower()
+
+    # 4. 检查 X-Forwarded-For / X-Forwarded-To
+    fwd_for = msg.get("X-Forwarded-For") or msg.get("X-Forwarded-To")
+    if fwd_for:
+        import re
+        matches = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', str(fwd_for))
+        for m in matches:
+            if m.lower() != to_addr.lower():
+                return m.strip().lower()
+
+    return ""
+
+def parse_raw_email(raw_content: str | bytes, default_to: str = "", default_forwarded_by: str = "") -> ParsedEmail:
     if isinstance(raw_content, str):
         raw_bytes = raw_content.encode("utf-8", errors="replace")
         raw_str = raw_content
@@ -120,6 +164,9 @@ def parse_raw_email(raw_content: str | bytes, default_to: str = "") -> ParsedEma
     to_name = decode_mime_header(to_name_raw) or to_addr
     if not to_addr and default_to:
         to_addr = default_to
+
+    # 提取转发来源（母账号）
+    forwarded_by = default_forwarded_by or extract_forwarding_address(msg, to_addr)
 
     body_text_parts = []
     body_html_parts = []
@@ -184,5 +231,7 @@ def parse_raw_email(raw_content: str | bytes, default_to: str = "") -> ParsedEma
         body_html=body_html,
         raw_eml=raw_str,
         has_attachments=len(attachments) > 0,
-        attachments=attachments
+        attachments=attachments,
+        forwarded_by=forwarded_by,
+        group_name=forwarded_by
     )

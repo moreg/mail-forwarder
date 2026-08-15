@@ -12,7 +12,9 @@ router = APIRouter(prefix="/emails", tags=["Emails"])
 async def list_emails(
     to: Optional[str] = Query(None, description="收件人邮箱过滤"),
     from_addr: Optional[str] = Query(None, alias="from", description="发件人邮箱过滤"),
-    search: Optional[str] = Query(None, description="全文关键字搜索 (主题/正文/发件人)"),
+    group: Optional[str] = Query(None, description="按转发母账号/分组过滤 (如 apple01@icloud.com 或 直接收件)"),
+    service: Optional[str] = Query(None, description="按识别到的服务商分类过滤 (例如 Apple, Google, Telegram)"),
+    search: Optional[str] = Query(None, description="全文关键字搜索 (主题/正文/发件人/转发源)"),
     is_read: Optional[bool] = Query(None, description="已读/未读过滤"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(30, ge=1, le=100, description="每页条数")
@@ -21,6 +23,8 @@ async def list_emails(
     items = await get_emails(
         to_address=to,
         from_address=from_addr,
+        forwarded_by=group,
+        service_name=service,
         search=search,
         is_read=is_read,
         limit=page_size,
@@ -29,6 +33,8 @@ async def list_emails(
     total = await count_emails(
         to_address=to,
         from_address=from_addr,
+        forwarded_by=group,
+        service_name=service,
         search=search,
         is_read=is_read
     )
@@ -75,8 +81,11 @@ async def delete_single_email(email_id: int):
     return {"success": success}
 
 @router.delete("")
-async def batch_clear_emails(to: Optional[str] = Query(None, description="仅清空指定收件人的邮件")):
-    deleted_count = await clear_all_emails(to_address=to)
+async def batch_clear_emails(
+    to: Optional[str] = Query(None, description="仅清空指定收件人的邮件"),
+    group: Optional[str] = Query(None, description="仅清空指定转发分组的邮件")
+):
+    deleted_count = await clear_all_emails(to_address=to, forwarded_by=group)
     return {
         "success": True,
         "deleted_count": deleted_count

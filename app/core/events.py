@@ -21,7 +21,7 @@ class EventBroadcaster:
     async def broadcast(self, event_type: str, data: Any):
         if not self._subscribers:
             return
-        payload = json.dumps({"event": event_type, "data": data}, ensure_ascii=False)
+        event_dict = {"event": event_type, "data": data}
         for q in list(self._subscribers):
             try:
                 if q.full():
@@ -29,7 +29,7 @@ class EventBroadcaster:
                         q.get_nowait()  # Drop oldest event if subscriber is slow
                     except asyncio.QueueEmpty:
                         pass
-                q.put_nowait(payload)
+                q.put_nowait(event_dict)
             except Exception as e:
                 logger.debug(f"Failed to put event into queue: {e}")
 

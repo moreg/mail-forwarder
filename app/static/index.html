@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>邮件接收与智能取码系统 - MailCapture & OTP Hub</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=1.0.4">
+  <link rel="stylesheet" href="/static/css/style.css?v=1.0.5">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -46,8 +46,12 @@
       </div>
 
       <div class="navbar-actions">
+        <button class="btn btn-outline" id="btn-export-links" style="color: #0369a1; border-color: #bae6fd; background-color: #f0f9ff;" title="批量导出各邮箱专属访客取件链接 (邮箱----链接)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          批量导出取件链接
+        </button>
         <button class="btn btn-outline" id="btn-domain-wizard" style="color: var(--primary-color); border-color: #bfdbfe; background-color: #eff6ff;" title="配置您的域名与 Apple ID 邮箱向导">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
           域名与 Apple ID 配置向导
         </button>
         <button class="btn btn-outline" id="btn-test-modal" title="在网页上直接模拟接收一封测试邮件">
@@ -61,6 +65,10 @@
         <button class="btn btn-primary" id="btn-api-modal">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
           API / IMAP 代码
+        </button>
+        <button class="btn btn-ghost btn-danger" id="btn-logout" style="display: none;" title="退出管理员登录">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          退出
         </button>
       </div>
     </header>
@@ -90,13 +98,39 @@
           </ul>
         </div>
 
+        <!-- Forwarding Email Groups (转发邮箱母账号层级分组) -->
         <div class="sidebar-section">
           <div class="section-title flex-between">
-            <span>活跃收件别名</span>
-            <span class="badge-sm" id="unique-inboxes-count">0</span>
+            <span>📂 转发邮箱分组</span>
+            <div class="section-actions">
+              <span class="badge-sm" id="unique-groups-count">0</span>
+              <button class="btn-xs-icon" id="btn-toggle-all-groups" title="展开/收起全部">⇕</button>
+            </div>
           </div>
-          <div class="inbox-list" id="inbox-aliases-list">
-            <div class="empty-hint">暂无活跃别名</div>
+          <div class="group-tree-container" id="forwarding-groups-tree">
+            <div class="empty-hint">暂无转发分组</div>
+          </div>
+        </div>
+
+        <!-- Services Group (发件服务商分组) -->
+        <div class="sidebar-section">
+          <div class="section-title flex-between">
+            <span>🏢 发件服务分组</span>
+            <span class="badge-sm" id="unique-services-count">0</span>
+          </div>
+          <div class="inbox-list" id="services-group-list">
+            <div class="empty-hint">暂无服务分组</div>
+          </div>
+        </div>
+
+        <!-- Senders Group (常用发件人) -->
+        <div class="sidebar-section">
+          <div class="section-title flex-between">
+            <span>📨 常用发件人</span>
+            <span class="badge-sm" id="unique-senders-count">0</span>
+          </div>
+          <div class="inbox-list" id="senders-group-list">
+            <div class="empty-hint">暂无发件人记录</div>
           </div>
         </div>
 
@@ -171,11 +205,15 @@
                 <span class="meta-val highlight" id="detail-from"></span>
               </div>
               <div class="meta-row">
-                <span class="meta-label">收件人:</span>
+                <span class="meta-label">收件别名:</span>
                 <span class="meta-val highlight" id="detail-to"></span>
               </div>
+              <div class="meta-row" id="meta-row-forwarded" style="display: none;">
+                <span class="meta-label">转发母账号:</span>
+                <span class="meta-val highlight forward-accent" id="detail-forwarded"></span>
+              </div>
               <div class="meta-row">
-                <span class="meta-label">时间:</span>
+                <span class="meta-label">接收时间:</span>
                 <span class="meta-val" id="detail-time"></span>
               </div>
             </div>
@@ -305,9 +343,14 @@
               <div class="config-card">
                 <h4>🔐 访问安全与鉴权配置</h4>
                 <div class="form-group">
+                  <label class="form-label">Web 管理员登录密码 (Admin Password)</label>
+                  <input type="password" id="cfg-admin-pass" class="form-input" placeholder="留空则为免登录模式">
+                  <small class="form-help">设置后，访问本 Web 管理控制台需输入此密码登录；留空则任何人均可直接访问。</small>
+                </div>
+                <div class="form-group">
                   <label class="form-label">API 访问密钥 (API Key)</label>
-                  <input type="text" id="cfg-api-key" class="form-input" placeholder="留空则为内网免鉴权模式">
-                  <small class="form-help">设置后，请求 <code>/api/v1/codes/*</code> 可配合 Header <code>X-API-Key</code> 或参数鉴权。</small>
+                  <input type="text" id="cfg-api-key" class="form-input" placeholder="留空则为 API 免鉴权模式">
+                  <small class="form-help">设置后，外部脚本请求 <code>/api/v1/*</code> 接口需携带 Header <code>X-API-Key</code> 或 Token 鉴权。</small>
                 </div>
                 <div class="form-group">
                   <label class="form-label">IMAP 访问密码</label>
@@ -374,8 +417,13 @@
             <input type="text" id="test-from" class="form-input" value="appleid@id.apple.com">
           </div>
           <div class="form-group">
-            <label class="form-label">收件人 (To - 您的目标别名):</label>
-            <input type="text" id="test-to" class="form-input" value="my_icloud@domain.com">
+            <label class="form-label">收件别名 (To - 目标别名):</label>
+            <input type="text" id="test-to" class="form-input" value="dev01@domain.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">转发母账号 (Forwarded By - 转发来源，可选):</label>
+            <input type="text" id="test-forwarded" class="form-input" value="apple_master1@icloud.com" placeholder="例如: apple01@icloud.com (留空则为直接收件)">
+            <small class="form-help">设置后，该邮件将被归类到此转发母账号分组下。</small>
           </div>
           <div class="form-group">
             <label class="form-label">邮件主题 (Subject):</label>
@@ -428,10 +476,78 @@
       </div>
     </div>
 
+    <!-- Modal: Batch Export Pickup Links (批量导出访客独立取件链接) -->
+    <div class="modal-backdrop" id="modal-export-links" style="display: none;">
+      <div class="modal-card modal-lg">
+        <div class="modal-header">
+          <h3>🔗 批量导出访客独立取件链接</h3>
+          <button class="btn-close" id="btn-close-export">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">筛选转发母账号分组:</label>
+            <select id="export-group-select" class="form-select">
+              <option value="__all__">全部母账号与别名邮箱</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">服务访问域名 / 前缀 (自动读取当前域名，可手动修改):</label>
+            <input type="text" id="export-domain-input" class="form-input" placeholder="例如: https://mailbox.dscb.top 或 http://127.0.0.1:8000">
+            <small class="form-help">生成的格式为：<code>邮箱别名----取件链接</code>，可直接粘贴分发给访客或脚本处理。</small>
+          </div>
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label class="form-label" style="margin-bottom: 0;">导出的取件链接清单:</label>
+              <span class="badge-sm" id="export-total-count">0 个邮箱</span>
+            </div>
+            <textarea id="export-links-textarea" class="export-links-box" rows="11" readonly placeholder="点击选择分组后自动生成..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btn-cancel-export">关闭</button>
+          <button class="btn btn-primary" id="btn-copy-all-links">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            一键复制全部取件链接
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Login Screen (管理员鉴权登录) -->
+    <div class="login-backdrop" id="modal-login" style="display: none;">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-brand-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <h3 class="login-title">管理员身份认证</h3>
+          <p class="login-subtitle">当前系统已开启访问保护，请输入管理员密码或 API Key 继续</p>
+        </div>
+
+        <form id="login-form" class="login-form">
+          <div class="form-group">
+            <label class="form-label" for="login-password-input">管理员密码 / API Key</label>
+            <div class="pwd-input-wrap">
+              <input type="password" id="login-password-input" class="form-input" placeholder="请输入访问密码..." autocomplete="current-password" required>
+              <button type="button" class="btn-pwd-eye" id="btn-toggle-login-pwd" title="显示/隐藏密码">👁️</button>
+            </div>
+            <div class="login-err-tip" id="login-err-tip" style="display: none;"></div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg w-full" id="btn-submit-login">
+            <span>安全登录</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+
     <!-- Global Toast Container -->
     <div id="toast-container" class="toast-container"></div>
   </div>
 
-  <script src="/static/js/app.js?v=1.0.4"></script>
+  <script src="/static/js/app.js?v=1.1.0"></script>
 </body>
 </html>

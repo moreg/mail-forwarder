@@ -8,6 +8,7 @@ from app.engine.pipeline import process_incoming_email
 router = APIRouter(prefix="/config", tags=["Configuration"])
 
 class ConfigUpdateModel(BaseModel):
+    admin_password: Optional[str] = None
     api_key: Optional[str] = None
     imap_password: Optional[str] = None
     otp_keywords: Optional[List[str]] = None
@@ -16,6 +17,7 @@ class ConfigUpdateModel(BaseModel):
 class TestEmailInjectModel(BaseModel):
     from_address: str = "service@apple.com"
     to_address: str = "my_user@mydomain.com"
+    forwarded_by: Optional[str] = ""
     subject: str = "您的 Apple ID 验证码是 928301"
     body_text: str = "您好，您本次登录的 Apple ID 验证码为 928301，请在 10 分钟内完成验证。切勿将验证码告知他人。"
     body_html: Optional[str] = ""
@@ -28,6 +30,7 @@ async def get_current_configuration():
             "server": {
                 "host": settings.server.host,
                 "port": settings.server.port,
+                "admin_password": settings.server.admin_password,
                 "api_key": settings.server.api_key
             },
             "smtp": {
@@ -55,6 +58,8 @@ async def get_current_configuration():
 
 @router.post("")
 async def update_configuration(payload: ConfigUpdateModel):
+    if payload.admin_password is not None:
+        settings.server.admin_password = payload.admin_password
     if payload.api_key is not None:
         settings.server.api_key = payload.api_key
     if payload.imap_password is not None:
@@ -87,9 +92,11 @@ async def update_configuration(payload: ConfigUpdateModel):
 @router.post("/test-inject")
 async def inject_test_email(payload: TestEmailInjectModel):
     """用于在 UI 上一键模拟发送测试邮件，实时检验解析与取码效果"""
+    forward_headers = f"Delivered-To: {payload.forwarded_by}\r\n" if payload.forwarded_by else ""
     raw_content = (
         f"From: {payload.from_address}\r\n"
         f"To: {payload.to_address}\r\n"
+        f"{forward_headers}"
         f"Subject: {payload.subject}\r\n"
         f"Content-Type: text/plain; charset=utf-8\r\n\r\n"
         f"{payload.body_text}"
@@ -97,7 +104,8 @@ async def inject_test_email(payload: TestEmailInjectModel):
     res = await process_incoming_email(
         raw_content=raw_content,
         recipient_override=payload.to_address,
-        sender_override=payload.from_address
+        sender_override=payload.from_address,
+        forwarded_by_override=payload.forwarded_by or None
     )
     return {
         "success": True,

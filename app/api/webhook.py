@@ -18,6 +18,7 @@ async def receive_inbound_webhook(request: Request):
     
     recipient_override = None
     sender_override = None
+    forwarded_by_override = None
     raw_content = None
 
     if "application/json" in content_type:
@@ -26,6 +27,7 @@ async def receive_inbound_webhook(request: Request):
             raw_content = body_json.get("raw") or body_json.get("email") or body_json.get("content")
             recipient_override = body_json.get("to") or body_json.get("recipient")
             sender_override = body_json.get("from") or body_json.get("sender")
+            forwarded_by_override = body_json.get("forwarded_by") or body_json.get("forwarder") or body_json.get("group")
             
             # If JSON doesn't contain raw EML but separate fields:
             if not raw_content and (body_json.get("subject") or body_json.get("body_text") or body_json.get("body_html")):
@@ -42,6 +44,7 @@ async def receive_inbound_webhook(request: Request):
             raw_content = form.get("email") or form.get("raw") or form.get("body-mime")
             recipient_override = form.get("to") or form.get("recipient")
             sender_override = form.get("from") or form.get("sender")
+            forwarded_by_override = form.get("forwarded_by") or form.get("forwarder") or form.get("group")
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid multipart form payload: {e}")
     else:
@@ -55,7 +58,8 @@ async def receive_inbound_webhook(request: Request):
     result = await process_incoming_email(
         raw_content=raw_content,
         recipient_override=str(recipient_override) if recipient_override else None,
-        sender_override=str(sender_override) if sender_override else None
+        sender_override=str(sender_override) if sender_override else None,
+        forwarded_by_override=str(forwarded_by_override) if forwarded_by_override else None
     )
 
     return {

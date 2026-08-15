@@ -1,39 +1,93 @@
 // MailCapture & OTP Hub Client Logic
 let state = {
   currentFilter: 'all', // 'all', 'unread', 'codes'
-  selectedAlias: null,
+  selectedGroup: null,   // 转发母账号/分组 (如 apple01@icloud.com 或 直接收件)
+  selectedAlias: null,   // 收件别名 (如 dev01@domain.com)
+  selectedService: null,
+  selectedSender: null,
   searchQuery: '',
   emails: [],
   selectedEmailId: null,
   stats: null,
   activeTab: 'html',
   activeCodeLang: 'python-api',
-  apiKey: localStorage.getItem('mc_api_key') || ''
+  apiKey: localStorage.getItem('mc_api_key') || '',
+  authToken: localStorage.getItem('mc_auth_token') || '',
+  authRequired: false,
+  isLoggedIn: false
 };
+
+const SERVICE_ICONS = {
+  apple: '🍏',
+  google: '🔍',
+  telegram: '✈️',
+  github: '🐙',
+  microsoft: '🪟',
+  openai: '🤖',
+  chatgpt: '🤖',
+  discord: '💬',
+  amazon: '📦',
+  twitter: '🐦',
+  x: '🐦',
+  paypal: '💳',
+  steam: '🎮',
+  netflix: '🎬',
+  facebook: '👥',
+  meta: '👥'
+};
+
+function getServiceIcon(serviceName) {
+  if (!serviceName) return '🏢';
+  const lower = serviceName.toLowerCase();
+  for (const [k, icon] of Object.entries(SERVICE_ICONS)) {
+    if (lower.includes(k)) return icon;
+  }
+  return '🏢';
+}
+
+function getGroupIcon(groupName) {
+  if (!groupName) return '📂';
+  const lower = groupName.toLowerCase();
+  if (lower.includes('icloud') || lower.includes('apple') || lower.includes('me.com')) return '🍏';
+  if (lower.includes('gmail') || lower.includes('google')) return '🔍';
+  if (lower.includes('outlook') || lower.includes('hotmail') || lower.includes('microsoft')) return '🪟';
+  if (lower.includes('直接收件') || lower.includes('direct')) return '🌐';
+  return '📧';
+}
+
+function clearAllSidebarActive() {
+  document.querySelectorAll(
+    '.group-header, .group-alias-item, .service-group-item, .sender-group-item, .inbox-alias-item'
+  ).forEach(el => el.classList.remove('active'));
+}
 
 // Presets for Test Mail Injection
 const PRESETS = {
   apple: {
     from: "appleid@id.apple.com",
-    to: "my_icloud@domain.com",
+    to: "dev01@yourdomain.com",
+    forwarded_by: "apple_master1@icloud.com",
     subject: "您的 Apple ID 验证码是 948210",
     body: "您好，您的 Apple ID 验证码是 948210。请在 10 分钟内输入此代码以完成双重认证登录。请勿与任何人共享此代码。"
   },
   github: {
     from: "noreply@github.com",
-    to: "developer@domain.com",
+    to: "bot_developer@yourdomain.com",
+    forwarded_by: "company_fwd@icloud.com",
     subject: "GitHub device verification code",
     body: "Please enter the following verification code to sign in to your GitHub account: 519283\nThis code will expire in 10 minutes."
   },
   telegram: {
     from: "login@telegram.org",
-    to: "telegram_user@domain.com",
+    to: "tg_alias@yourdomain.com",
+    forwarded_by: "company_fwd@icloud.com",
     subject: "Telegram login code: 62819",
     body: "Dear user, here is your Telegram login code: 62819\nDo not give this code to anyone, even if they say they're from Telegram!"
   },
   google: {
     from: "no-reply@accounts.google.com",
-    to: "google_alias@domain.com",
+    to: "google_direct@yourdomain.com",
+    forwarded_by: "",
     subject: "Google 账号验证码",
     body: "G-749102 是您的 Google 验证码。请使用此代码验证您的身份。"
   }
@@ -64,20 +118,24 @@ const sseStatus = document.getElementById('sse-status');
 // Secure Fetch Wrapper
 async function apiFetch(url, options = {}) {
   options.headers = options.headers || {};
+  if (state.authToken) {
+    options.headers['Authorization'] = `Bearer ${state.authToken}`;
+  }
   if (state.apiKey) {
     options.headers['X-API-Key'] = state.apiKey;
   }
-  return fetch(url, options);
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    state.isLoggedIn = false;
+    showLoginModal();
+  }
+  return res;
 }
 
 // Init App
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
-  setupSSE();
-  fetchStats();
-  fetchEmails();
-  updateCodeSnippets();
-  updateWizardContent();
+  checkAuthAndInit();
 });
 
 // Setup Event Listeners
@@ -88,9 +146,23 @@ function setupEventListeners() {
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
       state.currentFilter = item.getAttribute('data-filter');
+      state.selectedGroup = null;
       state.selectedAlias = null;
-      document.querySelectorAll('.inbox-alias-item').forEach(a => a.classList.remove('active'));
+      state.selectedService = null;
+      state.selectedSender = null;
+      clearAllSidebarActive();
       fetchEmails();
+    });
+  });
+
+  // Toggle all groups collapse/expand
+  bindClick('btn-toggle-all-groups', () => {
+    const nodes = document.querySelectorAll('.group-node');
+    if (!nodes.length) return;
+    const anyClosed = Array.from(nodes).some(n => !n.classList.contains('open'));
+    nodes.forEach(n => {
+      if (anyClosed) n.classList.add('open');
+      else n.classList.remove('open');
     });
   });
 
@@ -172,12 +244,145 @@ function setupEventListeners() {
   setupModals();
 }
 
+// Auth Management
+async function checkAuthAndInit() {
+  try {
+    const res = await fetch('/api/v1/auth/status', {
+      headers: state.authToken ? { 'Authorization': `Bearer ${state.authToken}` } : {}
+    });
+    const json = await res.json();
+    if (json.success) {
+      state.authRequired = json.auth_required;
+      if (json.auth_required) {
+        if (json.logged_in) {
+          state.isLoggedIn = true;
+          hideLoginModal();
+          updateLogoutButton(true);
+          initDashboard();
+        } else {
+          state.isLoggedIn = false;
+          showLoginModal();
+          updateLogoutButton(false);
+        }
+      } else {
+        state.isLoggedIn = true;
+        hideLoginModal();
+        updateLogoutButton(false);
+        initDashboard();
+      }
+    } else {
+      initDashboard();
+    }
+  } catch (err) {
+    console.error('Auth check error:', err);
+    initDashboard();
+  }
+}
+
+function initDashboard() {
+  setupSSE();
+  fetchStats();
+  fetchEmails();
+  updateCodeSnippets();
+  updateWizardContent();
+}
+
+function showLoginModal() {
+  const modal = document.getElementById('modal-login');
+  if (modal) {
+    modal.style.display = 'flex';
+    const input = document.getElementById('login-password-input');
+    if (input) {
+      input.value = '';
+      setTimeout(() => input.focus(), 150);
+    }
+    const err = document.getElementById('login-err-tip');
+    if (err) err.style.display = 'none';
+  }
+}
+
+function hideLoginModal() {
+  const modal = document.getElementById('modal-login');
+  if (modal) modal.style.display = 'none';
+}
+
+function updateLogoutButton(show) {
+  const btn = document.getElementById('btn-logout');
+  if (btn) {
+    btn.style.display = show ? 'inline-flex' : 'none';
+  }
+}
+
 function setupModals() {
   const guideModal = document.getElementById('modal-guide');
   const apiModal = document.getElementById('modal-api');
   const settingsModal = document.getElementById('modal-settings');
   const testModal = document.getElementById('modal-test');
   const wizardModal = document.getElementById('modal-domain-wizard');
+  const loginForm = document.getElementById('login-form');
+
+  // Login form submit
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pwdInput = document.getElementById('login-password-input');
+      const errTip = document.getElementById('login-err-tip');
+      const password = pwdInput ? pwdInput.value.trim() : '';
+
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: password })
+        });
+        const json = await res.json();
+        if (json.success) {
+          state.authToken = json.token || '';
+          localStorage.setItem('mc_auth_token', state.authToken);
+          state.isLoggedIn = true;
+          hideLoginModal();
+          updateLogoutButton(state.authRequired);
+          showToast('✅ 登录成功');
+          initDashboard();
+        } else {
+          if (errTip) {
+            errTip.innerText = json.detail || '密码或 API Key 错误';
+            errTip.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errTip) {
+          errTip.innerText = '登录失败: ' + err.message;
+          errTip.style.display = 'block';
+        }
+      }
+    });
+  }
+
+  // Toggle login password visibility
+  bindClick('btn-toggle-login-pwd', () => {
+    const pwdInput = document.getElementById('login-password-input');
+    if (pwdInput) {
+      pwdInput.type = pwdInput.type === 'password' ? 'text' : 'password';
+    }
+  });
+
+  // Logout button
+  bindClick('btn-logout', async () => {
+    try {
+      await fetch('/api/v1/auth/logout', { method: 'POST' });
+    } catch (_) {}
+    state.authToken = '';
+    state.isLoggedIn = false;
+    localStorage.removeItem('mc_auth_token');
+    if (evtSource) {
+      evtSource.close();
+      evtSource = null;
+    }
+    updateLogoutButton(false);
+    showLoginModal();
+    showToast('已退出登录');
+  });
 
   // Domain Wizard
   bindClick('btn-domain-wizard', () => {
@@ -259,10 +464,12 @@ function setupModals() {
       if (p) {
         const fromEl = document.getElementById('test-from');
         const toEl = document.getElementById('test-to');
+        const forwardEl = document.getElementById('test-forwarded');
         const subjEl = document.getElementById('test-subject');
         const bodyEl = document.getElementById('test-body');
         if (fromEl) fromEl.value = p.from;
         if (toEl) toEl.value = p.to;
+        if (forwardEl) forwardEl.value = p.forwarded_by || '';
         if (subjEl) subjEl.value = p.subject;
         if (bodyEl) bodyEl.value = p.body;
       }
@@ -273,11 +480,13 @@ function setupModals() {
   bindClick('btn-send-test', async () => {
     const fromEl = document.getElementById('test-from');
     const toEl = document.getElementById('test-to');
+    const forwardEl = document.getElementById('test-forwarded');
     const subjEl = document.getElementById('test-subject');
     const bodyEl = document.getElementById('test-body');
 
     const fromAddr = fromEl ? fromEl.value.trim() : 'service@apple.com';
     const toAddr = toEl ? toEl.value.trim() : 'my_user@mydomain.com';
+    const forwardedBy = forwardEl ? forwardEl.value.trim() : '';
     const subject = subjEl ? subjEl.value.trim() : 'Test Subject';
     const body = bodyEl ? bodyEl.value.trim() : 'Test Body';
 
@@ -288,6 +497,7 @@ function setupModals() {
         body: JSON.stringify({
           from_address: fromAddr,
           to_address: toAddr,
+          forwarded_by: forwardedBy,
           subject: subject,
           body_text: body
         })
@@ -327,6 +537,89 @@ function setupModals() {
       });
     }
   });
+
+  // Batch Export Pickup Links Modal
+  const exportModal = document.getElementById('modal-export-links');
+  bindClick('btn-export-links', () => {
+    if (exportModal) exportModal.style.display = 'flex';
+    initExportLinksModal();
+  });
+  bindClick('btn-close-export', () => {
+    if (exportModal) exportModal.style.display = 'none';
+  });
+  bindClick('btn-cancel-export', () => {
+    if (exportModal) exportModal.style.display = 'none';
+  });
+
+  bindEvent('export-group-select', 'change', updateExportLinks);
+  bindEvent('export-domain-input', 'input', updateExportLinks);
+
+  bindClick('btn-copy-all-links', () => {
+    const textarea = document.getElementById('export-links-textarea');
+    if (textarea && textarea.value) {
+      navigator.clipboard.writeText(textarea.value).then(() => {
+        showToast('✅ 已成功复制全部取件链接清单！');
+      });
+    }
+  });
+}
+
+function initExportLinksModal() {
+  const domainInput = document.getElementById('export-domain-input');
+  if (domainInput && !domainInput.value) {
+    domainInput.value = window.location.origin;
+  }
+  const groupSelect = document.getElementById('export-group-select');
+  if (groupSelect && state.stats && state.stats.groups) {
+    const prevVal = groupSelect.value;
+    groupSelect.innerHTML = '<option value="__all__">全部母账号与别名邮箱</option>' +
+      state.stats.groups.map(g => `<option value="${escapeHtml(g.group_name)}">${escapeHtml(g.group_name)} (${g.aliases ? g.aliases.length : 0} 个别名)</option>`).join('');
+    if (prevVal) groupSelect.value = prevVal;
+  }
+  updateExportLinks();
+}
+
+function updateExportLinks() {
+  const groupSelect = document.getElementById('export-group-select');
+  const domainInput = document.getElementById('export-domain-input');
+  const textarea = document.getElementById('export-links-textarea');
+  const countEl = document.getElementById('export-total-count');
+
+  if (!state.stats || !state.stats.groups) {
+    if (textarea) textarea.value = '暂无邮箱数据';
+    return;
+  }
+
+  const selectedGroup = groupSelect ? groupSelect.value : '__all__';
+  let domain = (domainInput ? domainInput.value.trim() : '') || window.location.origin;
+  domain = domain.replace(/\/+$/, '');
+
+  let aliasesList = [];
+  state.stats.groups.forEach(g => {
+    if (selectedGroup === '__all__' || g.group_name === selectedGroup) {
+      if (g.aliases && g.aliases.length > 0) {
+        g.aliases.forEach(a => {
+          if (!aliasesList.includes(a.to_address)) {
+            aliasesList.push(a.to_address);
+          }
+        });
+      }
+    }
+  });
+
+  if (countEl) countEl.innerText = `${aliasesList.length} 个邮箱`;
+
+  if (aliasesList.length === 0) {
+    if (textarea) textarea.value = '(所选分组下暂无活跃别名邮箱)';
+    return;
+  }
+
+  const formattedLines = aliasesList.map(addr => {
+    const pickupUrl = `${domain}/mailboxes/${encodeURIComponent(addr)}`;
+    return `${addr}----${pickupUrl}`;
+  });
+
+  if (textarea) textarea.value = formattedLines.join('\n');
 }
 
 function updateWizardContent() {
@@ -391,6 +684,7 @@ async function loadSettingsData() {
     const json = await res.json();
     if (json.success) {
       const cfg = json.data;
+      const adminPassEl = document.getElementById('cfg-admin-pass');
       const keyEl = document.getElementById('cfg-api-key');
       const passEl = document.getElementById('cfg-imap-pass');
       const kwEl = document.getElementById('cfg-otp-keywords');
@@ -398,6 +692,7 @@ async function loadSettingsData() {
       const statSmtp = document.getElementById('stat-smtp-port');
       const statImap = document.getElementById('stat-imap-port');
 
+      if (adminPassEl) adminPassEl.value = cfg.server.admin_password || '';
       if (keyEl) keyEl.value = cfg.server.api_key || '';
       if (passEl) passEl.value = cfg.imap.auth_password || '';
       if (kwEl) kwEl.value = (cfg.otp.keywords || []).join(', ');
@@ -412,10 +707,12 @@ async function loadSettingsData() {
 }
 
 async function saveSettingsData() {
+  const adminPassEl = document.getElementById('cfg-admin-pass');
   const keyEl = document.getElementById('cfg-api-key');
   const passEl = document.getElementById('cfg-imap-pass');
   const kwEl = document.getElementById('cfg-otp-keywords');
 
+  const adminPassword = adminPassEl ? adminPassEl.value : '';
   const apiKey = keyEl ? keyEl.value.trim() : '';
   const imapPass = passEl ? passEl.value.trim() : 'password123';
   const rawKeywords = kwEl ? kwEl.value : '';
@@ -426,6 +723,7 @@ async function saveSettingsData() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        admin_password: adminPassword,
         api_key: apiKey,
         imap_password: imapPass,
         otp_keywords: keywordsList
@@ -436,6 +734,7 @@ async function saveSettingsData() {
       state.apiKey = apiKey;
       localStorage.setItem('mc_api_key', apiKey);
       showToast('✅ 系统配置已保存并实时生效');
+      checkAuthAndInit();
     }
   } catch (e) {
     showToast('保存失败: ' + e.message);
@@ -443,35 +742,59 @@ async function saveSettingsData() {
 }
 
 // Setup Server-Sent Events (SSE)
+let evtSource = null;
 function setupSSE() {
-  const evtSource = new EventSource('/api/v1/stream');
+  if (evtSource) {
+    evtSource.close();
+    evtSource = null;
+  }
+  if (state.authRequired && !state.isLoggedIn) {
+    return;
+  }
+  let sseUrl = '/api/v1/stream';
+  const params = [];
+  if (state.authToken) {
+    params.push(`token=${encodeURIComponent(state.authToken)}`);
+  }
+  if (state.apiKey) {
+    params.push(`api_key=${encodeURIComponent(state.apiKey)}`);
+  }
+  if (params.length > 0) {
+    sseUrl += '?' + params.join('&');
+  }
 
-  evtSource.onopen = () => {
-    if (sseStatus) {
-      sseStatus.classList.remove('disconnected');
-      const label = sseStatus.querySelector('.status-label');
-      if (label) label.innerText = '实时流已连接';
-    }
-  };
+  try {
+    evtSource = new EventSource(sseUrl);
 
-  evtSource.addEventListener('email_event', (e) => {
-    try {
-      const payload = JSON.parse(e.data);
-      if (payload.event === 'new_email') {
-        handleIncomingEmail(payload.data);
+    evtSource.onopen = () => {
+      if (sseStatus) {
+        sseStatus.classList.remove('disconnected');
+        const label = sseStatus.querySelector('.status-label');
+        if (label) label.innerText = '实时流已连接';
       }
-    } catch (err) {
-      console.error('SSE Error:', err);
-    }
-  });
+    };
 
-  evtSource.onerror = () => {
-    if (sseStatus) {
-      sseStatus.classList.add('disconnected');
-      const label = sseStatus.querySelector('.status-label');
-      if (label) label.innerText = '连接断开，重连中...';
-    }
-  };
+    evtSource.addEventListener('email_event', (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        if (payload.event === 'new_email') {
+          handleIncomingEmail(payload.data);
+        }
+      } catch (err) {
+        console.error('SSE Error:', err);
+      }
+    });
+
+    evtSource.onerror = () => {
+      if (sseStatus) {
+        sseStatus.classList.add('disconnected');
+        const label = sseStatus.querySelector('.status-label');
+        if (label) label.innerText = '连接断开，重连中...';
+      }
+    };
+  } catch (err) {
+    console.error('Failed to init SSE:', err);
+  }
 }
 
 function handleIncomingEmail(data) {
@@ -501,12 +824,16 @@ function renderStats(stats) {
   const totalEl = document.getElementById('count-total');
   const unreadEl = document.getElementById('count-unread');
   const codesEl = document.getElementById('count-codes');
-  const uniqueEl = document.getElementById('unique-inboxes-count');
+  const uniqueGroupsEl = document.getElementById('unique-groups-count');
+  const uniqueServicesEl = document.getElementById('unique-services-count');
+  const uniqueSendersEl = document.getElementById('unique-senders-count');
 
   if (totalEl) totalEl.innerText = stats.total_emails || 0;
   if (unreadEl) unreadEl.innerText = stats.unread_emails || 0;
   if (codesEl) codesEl.innerText = stats.total_codes || 0;
-  if (uniqueEl) uniqueEl.innerText = stats.unique_inboxes || 0;
+  if (uniqueGroupsEl) uniqueGroupsEl.innerText = (stats.groups || []).length;
+  if (uniqueServicesEl) uniqueServicesEl.innerText = (stats.top_services || []).length;
+  if (uniqueSendersEl) uniqueSendersEl.innerText = (stats.top_senders || []).length;
 
   if (stats.config) {
     const chipApi = document.getElementById('chip-api-port');
@@ -517,42 +844,213 @@ function renderStats(stats) {
     if (chipImap) chipImap.innerText = stats.config.imap_port || '1143';
   }
 
-  // Render top inboxes list in sidebar
-  const inboxesList = document.getElementById('inbox-aliases-list');
-  if (inboxesList) {
-    if (stats.top_inboxes && stats.top_inboxes.length > 0) {
-      inboxesList.innerHTML = stats.top_inboxes.map(item => `
-        <div class="inbox-alias-item ${state.selectedAlias === item.to_address ? 'active' : ''}" data-addr="${escapeHtml(item.to_address)}">
-          <span style="overflow: hidden; text-overflow: ellipsis;">${escapeHtml(item.to_address)}</span>
+  // 1. Render Forwarding Groups Tree (转发母账号 -> 下属别名层级树)
+  renderGroupsTree(stats.groups || []);
+
+  // 2. Render Services Group (发件服务商分组)
+  const servicesList = document.getElementById('services-group-list');
+  if (servicesList) {
+    if (stats.top_services && stats.top_services.length > 0) {
+      servicesList.innerHTML = stats.top_services.map(item => `
+        <div class="service-group-item inbox-alias-item ${state.selectedService === item.service_name ? 'active' : ''}" data-service="${escapeHtml(item.service_name)}">
+          <span class="group-label" title="${escapeHtml(item.service_name)}">
+            <span class="group-icon">${getServiceIcon(item.service_name)}</span>
+            <span>${escapeHtml(item.service_name)}</span>
+          </span>
           <span class="badge-sm">${item.count}</span>
         </div>
       `).join('');
 
-      inboxesList.querySelectorAll('.inbox-alias-item').forEach(el => {
+      servicesList.querySelectorAll('.service-group-item').forEach(el => {
         el.addEventListener('click', () => {
-          const addr = el.getAttribute('data-addr');
-          if (state.selectedAlias === addr) {
-            state.selectedAlias = null;
+          const sName = el.getAttribute('data-service');
+          if (state.selectedService === sName) {
+            state.selectedService = null;
             el.classList.remove('active');
           } else {
-            document.querySelectorAll('.inbox-alias-item').forEach(i => i.classList.remove('active'));
+            clearAllSidebarActive();
             el.classList.add('active');
-            state.selectedAlias = addr;
+            state.selectedService = sName;
+            state.selectedGroup = null;
+            state.selectedAlias = null;
+            state.selectedSender = null;
           }
           fetchEmails();
         });
       });
     } else {
-      inboxesList.innerHTML = '<div class="empty-hint">暂无活跃别名</div>';
+      servicesList.innerHTML = '<div class="empty-hint">暂无服务分组</div>';
     }
   }
+
+  // 3. Render Senders Group (常用发件人分组)
+  const sendersList = document.getElementById('senders-group-list');
+  if (sendersList) {
+    if (stats.top_senders && stats.top_senders.length > 0) {
+      sendersList.innerHTML = stats.top_senders.map(item => `
+        <div class="sender-group-item inbox-alias-item ${state.selectedSender === item.from_address ? 'active' : ''}" data-sender="${escapeHtml(item.from_address)}">
+          <span class="group-label" title="${escapeHtml(item.from_address)}">
+            <span class="group-icon">✉️</span>
+            <span>${escapeHtml(item.from_address)}</span>
+          </span>
+          <span class="badge-sm">${item.count}</span>
+        </div>
+      `).join('');
+
+      sendersList.querySelectorAll('.sender-group-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const sAddr = el.getAttribute('data-sender');
+          if (state.selectedSender === sAddr) {
+            state.selectedSender = null;
+            el.classList.remove('active');
+          } else {
+            clearAllSidebarActive();
+            el.classList.add('active');
+            state.selectedSender = sAddr;
+            state.selectedGroup = null;
+            state.selectedAlias = null;
+            state.selectedService = null;
+          }
+          fetchEmails();
+        });
+      });
+    } else {
+      sendersList.innerHTML = '<div class="empty-hint">暂无发件人记录</div>';
+    }
+  }
+}
+
+// Render Forwarding Groups Tree
+function renderGroupsTree(groups) {
+  const container = document.getElementById('forwarding-groups-tree');
+  if (!container) return;
+
+  if (!groups || groups.length === 0) {
+    container.innerHTML = '<div class="empty-hint">暂无转发分组</div>';
+    return;
+  }
+
+  container.innerHTML = groups.map((g, idx) => {
+    const isGroupActive = (state.selectedGroup === g.group_name && !state.selectedAlias);
+    const hasActiveChild = (g.aliases || []).some(a => a.to_address === state.selectedAlias);
+    const isGroupOpen = isGroupActive || hasActiveChild || idx === 0;
+    const groupIcon = getGroupIcon(g.group_name);
+
+    const aliasesHtml = (g.aliases || []).map(a => {
+      const isAliasActive = state.selectedAlias === a.to_address;
+      return `
+        <div class="group-alias-item ${isAliasActive ? 'active' : ''}" data-alias="${escapeHtml(a.to_address)}" data-group="${escapeHtml(g.group_name)}">
+          <div class="group-alias-label" title="${escapeHtml(a.to_address)}">
+            <span class="group-icon">📥</span>
+            <span>${escapeHtml(a.to_address)}</span>
+          </div>
+          <div class="group-badges">
+            ${a.latest_code ? `<span class="mini-code-pill" title="最新验证码: ${escapeHtml(a.latest_code)}">${escapeHtml(a.latest_code)}</span>` : ''}
+            <span class="badge-sm">${a.email_count}</span>
+            <button class="btn-copy-alias-link" data-copy-link="${escapeHtml(a.to_address)}" title="复制该邮箱专属访客取件链接">🔗</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="group-node ${isGroupOpen ? 'open' : ''}" data-group-node="${escapeHtml(g.group_name)}">
+        <div class="group-header ${isGroupActive ? 'active' : ''}" data-group="${escapeHtml(g.group_name)}">
+          <div class="group-title-wrap" title="${escapeHtml(g.group_name)}">
+            <span class="group-caret">▶</span>
+            <span class="group-icon">${groupIcon}</span>
+            <span class="group-name">${escapeHtml(g.group_name)}</span>
+          </div>
+          <div class="group-badges">
+            ${g.unread_emails > 0 ? `<span class="badge-unread-dot" title="${g.unread_emails} 封未读"></span>` : ''}
+            <span class="badge-sm">${g.total_emails}</span>
+          </div>
+        </div>
+        <div class="group-children">
+          ${aliasesHtml || '<div class="empty-hint" style="padding: 4px 0;">暂无别名</div>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // 1. Group Header Clicks (Toggle tree & filter whole group)
+  container.querySelectorAll('.group-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      const gName = header.getAttribute('data-group');
+      const node = header.closest('.group-node');
+
+      // Toggle collapse/open on click
+      if (node) {
+        node.classList.toggle('open');
+      }
+
+      if (state.selectedGroup === gName && !state.selectedAlias) {
+        state.selectedGroup = null;
+        header.classList.remove('active');
+      } else {
+        clearAllSidebarActive();
+        header.classList.add('active');
+        state.selectedGroup = gName;
+        state.selectedAlias = null;
+        state.selectedService = null;
+        state.selectedSender = null;
+      }
+      fetchEmails();
+    });
+  });
+
+  // 2. Alias Item Clicks (Filter specific alias inbox)
+  container.querySelectorAll('.group-alias-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const alias = item.getAttribute('data-alias');
+      const gName = item.getAttribute('data-group');
+
+      if (state.selectedAlias === alias) {
+        state.selectedAlias = null;
+        item.classList.remove('active');
+      } else {
+        clearAllSidebarActive();
+        item.classList.add('active');
+        state.selectedAlias = alias;
+        state.selectedGroup = gName;
+        state.selectedService = null;
+        state.selectedSender = null;
+      }
+      fetchEmails();
+    });
+  });
+
+  // 3. Quick Copy Pickup Link Button
+  container.querySelectorAll('.btn-copy-alias-link').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const addr = btn.getAttribute('data-copy-link');
+      if (addr) {
+        const pickupUrl = `${window.location.origin}/mailboxes/${encodeURIComponent(addr)}`;
+        const copyText = `${addr}----${pickupUrl}`;
+        navigator.clipboard.writeText(copyText).then(() => {
+          showToast(`已复制取件格式: ${addr}----${pickupUrl}`);
+        });
+      }
+    });
+  });
 }
 
 // Fetch Emails
 async function fetchEmails() {
   let url = '/api/v1/emails?page=1&page_size=50';
+  if (state.selectedGroup && !state.selectedAlias) {
+    url += `&group=${encodeURIComponent(state.selectedGroup)}`;
+  }
   if (state.selectedAlias) {
     url += `&to=${encodeURIComponent(state.selectedAlias)}`;
+  }
+  if (state.selectedService) {
+    url += `&service=${encodeURIComponent(state.selectedService)}`;
+  }
+  if (state.selectedSender) {
+    url += `&from=${encodeURIComponent(state.selectedSender)}`;
   }
   if (state.searchQuery) {
     url += `&search=${encodeURIComponent(state.searchQuery)}`;
@@ -588,25 +1086,80 @@ function renderEmailList(items) {
     const isSelected = state.selectedEmailId === item.id;
     const isUnread = !item.is_read;
     const otpChip = item.latest_code ? `
-      <div class="card-otp-chip">
+      <div class="card-otp-chip" data-copy-code="${escapeHtml(item.latest_code)}" title="点击直接复制验证码">
         <span class="service-pill">${escapeHtml(item.service_name || 'OTP')}</span>
         <span>${escapeHtml(item.latest_code)}</span>
       </div>
+    ` : '';
+
+    const forwardBadge = (item.forwarded_by && item.forwarded_by !== '直接收件') ? `
+      <span class="badge-forward" title="转发母账号: ${escapeHtml(item.forwarded_by)}">
+        <span>↪</span> ${escapeHtml(item.forwarded_by)}
+      </span>
     ` : '';
 
     return `
       <div class="mail-card ${isSelected ? 'active' : ''} ${isUnread ? 'unread' : ''}" data-id="${item.id}">
         <div class="card-top">
           <span class="card-sender" title="${escapeHtml(item.from_address)}">${escapeHtml(item.from_address)}</span>
-          <span class="card-time">${formatTime(item.created_at)}</span>
+          <div class="card-top-right">
+            <span class="card-time">${formatTime(item.created_at)}</span>
+            <button class="btn-card-delete" title="直接删除此邮件" data-delete-id="${item.id}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
         </div>
-        <div class="card-to">To: ${escapeHtml(item.to_address)}</div>
+        <div class="card-to">
+          <span>To: ${escapeHtml(item.to_address)}</span>
+          ${forwardBadge}
+        </div>
         <div class="card-subject">${escapeHtml(item.subject || '(无主题)')}</div>
         ${otpChip}
       </div>
     `;
   }).join('');
 
+  // 1. Delete button click handler on card
+  mailCardsList.querySelectorAll('.btn-card-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.getAttribute('data-delete-id'));
+      if (!id) return;
+      try {
+        const res = await apiFetch(`/api/v1/emails/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('邮件已删除');
+          if (state.selectedEmailId === id) {
+            state.selectedEmailId = null;
+            renderDetailEmpty();
+          }
+          fetchStats();
+          fetchEmails();
+        }
+      } catch (err) {
+        showToast('删除失败: ' + err.message);
+      }
+    });
+  });
+
+  // 2. Click to copy OTP code directly from card chip
+  mailCardsList.querySelectorAll('.card-otp-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const code = chip.getAttribute('data-copy-code');
+      if (code) {
+        navigator.clipboard.writeText(code).then(() => {
+          showToast(`已复制验证码: ${code}`);
+        });
+      }
+    });
+  });
+
+  // 3. Card click handler (Open detail)
   mailCardsList.querySelectorAll('.mail-card').forEach(card => {
     card.addEventListener('click', () => {
       const id = parseInt(card.getAttribute('data-id'));
@@ -640,11 +1193,22 @@ function renderEmailDetail(email) {
   const fromEl = document.getElementById('detail-from');
   const toEl = document.getElementById('detail-to');
   const timeEl = document.getElementById('detail-time');
+  const forwardRow = document.getElementById('meta-row-forwarded');
+  const forwardEl = document.getElementById('detail-forwarded');
 
   if (subjEl) subjEl.innerText = email.subject || '(无主题)';
   if (fromEl) fromEl.innerText = email.from_address;
   if (toEl) toEl.innerText = email.to_address;
   if (timeEl) timeEl.innerText = email.created_at;
+
+  if (forwardRow && forwardEl) {
+    if (email.forwarded_by && email.forwarded_by !== '直接收件') {
+      forwardEl.innerText = email.forwarded_by;
+      forwardRow.style.display = 'flex';
+    } else {
+      forwardRow.style.display = 'none';
+    }
+  }
 
   // OTP Highlight Banner
   const otpBanner = document.getElementById('otp-highlight-banner');

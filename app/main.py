@@ -87,6 +87,14 @@ async def serve_index():
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
     )
 
+@app.get("/mailboxes/{email_address}", include_in_schema=False)
+async def serve_guest_mailbox_page(email_address: str):
+    mailbox_html = static_path / "mailbox.html"
+    return FileResponse(
+        mailbox_html,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

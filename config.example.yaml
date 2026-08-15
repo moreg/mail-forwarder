@@ -2,6 +2,7 @@
 server:
   host: "0.0.0.0"
   port: 8000
+  admin_password: "admin_password_123" # Web 管理员登录密码（留空则免登录）
   api_key: "my_secret_key_123"      # API 访问密钥（用于防护取码接口，留空则免鉴权）
 
 smtp:

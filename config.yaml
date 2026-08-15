@@ -1,6 +1,7 @@
 server:
   host: "0.0.0.0"
   port: 8000
+  admin_password: ""                # Web 登录管理员密码，留空表示免登录模式
   api_key: ""                       # 留空表示开发/内网免鉴权模式
 
 smtp:

@@ -8,7 +8,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
-    api_key: str = ""
+    admin_password: str = ""           # Web 管理员密码 (留空则免登录)
+    api_key: str = ""                  # API 访问密钥 (留空则免鉴权)
 
 class SmtpConfig(BaseModel):
     enabled: bool = True

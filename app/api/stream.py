@@ -1,3 +1,4 @@
+import json
 import asyncio
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -20,8 +21,9 @@ async def sse_event_stream():
             while True:
                 try:
                     # Wait for next event or send heartbeat
-                    payload = await asyncio.wait_for(queue.get(), timeout=20.0)
-                    yield f"event: email_event\ndata: {payload}\n\n"
+                    event = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    payload_json = json.dumps(event, ensure_ascii=False)
+                    yield f"event: email_event\ndata: {payload_json}\n\n"
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         except asyncio.CancelledError:

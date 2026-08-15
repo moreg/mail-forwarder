@@ -6,6 +6,8 @@ class EmailCreate(BaseModel):
     message_id: str = ""
     from_address: str
     to_address: str
+    forwarded_by: str = ""
+    group_name: str = ""
     subject: str = ""
     body_text: str = ""
     body_html: str = ""
@@ -19,6 +21,8 @@ class EmailItem(BaseModel):
     message_id: str
     from_address: str
     to_address: str
+    forwarded_by: str = ""
+    group_name: str = ""
     subject: str
     body_text: str
     body_html: str
@@ -48,3 +52,5 @@ class VerificationCodeItem(BaseModel):
     created_at: str
     email_subject: Optional[str] = None
     email_from: Optional[str] = None
+    forwarded_by: Optional[str] = None
+    group_name: Optional[str] = None
