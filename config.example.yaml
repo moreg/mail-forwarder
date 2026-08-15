@@ -1,0 +1,41 @@
+# 邮件接收与取码系统配置文件
+server:
+  host: "0.0.0.0"
+  port: 8000
+  api_key: "my_secret_key_123"      # API 访问密钥（用于防护取码接口，留空则免鉴权）
+
+smtp:
+  enabled: true
+  host: "0.0.0.0"
+  port: 25                          # 本地 SMTP 监听端口 (Windows/Linux 监听 25 端口可能需要管理员权限，测试可改为 2525)
+  domain: "localhost"               # 邮件服务器域名
+  max_message_size: 10485760        # 单封邮件最大字节数 (10MB)
+
+imap:
+  enabled: true
+  host: "0.0.0.0"
+  port: 1143                        # 虚拟 IMAP 监听端口 (默认 1143，生产可映射为 143)
+  auth_password: "imap_password_123"# IMAP 登录密码 (任意用户名均可搭配此密码登录)
+
+storage:
+  db_path: "data/mailbox.db"        # SQLite 数据库存储路径
+  save_raw_eml: true                # 是否保存原始 EML 文件
+  retention_days: 30                # 邮件保留天数 (0 为永久保留)
+
+otp:
+  keywords:                         # 验证码触发关键词
+    - "验证码"
+    - "校验码"
+    - "动态码"
+    - "激活码"
+    - "安全码"
+    - "动态口令"
+    - "verification code"
+    - "security code"
+    - "confirmation code"
+    - "one-time password"
+    - "otp"
+    - "pin code"
+    - "passcode"
+    - "auth code"
+    - "login code"

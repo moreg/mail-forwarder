@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>邮件接收与智能取码系统 - MailCapture & OTP Hub</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=1.0.4">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Top Navbar -->
+    <header class="app-navbar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="3"></rect>
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">MailCapture & OTP Hub</div>
+          <div class="brand-subtitle">邮件接收与智能取码平台</div>
+        </div>
+      </div>
+
+      <div class="server-status-bar">
+        <div class="status-badge" id="sse-status" title="实时推送连接状态">
+          <span class="pulse-dot"></span>
+          <span class="status-label">实时流已连接</span>
+        </div>
+        <div class="port-chip" title="REST API 端口">
+          <span class="chip-label">API</span>
+          <span class="chip-val" id="chip-api-port">8000</span>
+        </div>
+        <div class="port-chip" title="SMTP 接收服务端口">
+          <span class="chip-label">SMTP</span>
+          <span class="chip-val" id="chip-smtp-port">2525</span>
+        </div>
+        <div class="port-chip" title="虚拟 IMAP 服务端口">
+          <span class="chip-label">IMAP</span>
+          <span class="chip-val" id="chip-imap-port">1143</span>
+        </div>
+      </div>
+
+      <div class="navbar-actions">
+        <button class="btn btn-outline" id="btn-domain-wizard" style="color: var(--primary-color); border-color: #bfdbfe; background-color: #eff6ff;" title="配置您的域名与 Apple ID 邮箱向导">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          域名与 Apple ID 配置向导
+        </button>
+        <button class="btn btn-outline" id="btn-test-modal" title="在网页上直接模拟接收一封测试邮件">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          模拟收件测试
+        </button>
+        <button class="btn btn-outline" id="btn-settings-modal">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          系统配置
+        </button>
+        <button class="btn btn-primary" id="btn-api-modal">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+          API / IMAP 代码
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="app-workspace">
+      <!-- Left Sidebar: Filters & Mailboxes -->
+      <aside class="app-sidebar">
+        <div class="sidebar-section">
+          <div class="section-title">视图过滤</div>
+          <ul class="nav-list">
+            <li class="nav-item active" data-filter="all">
+              <span class="nav-icon">📥</span>
+              <span class="nav-text">所有收件</span>
+              <span class="nav-count" id="count-total">0</span>
+            </li>
+            <li class="nav-item" data-filter="unread">
+              <span class="nav-icon">✉️</span>
+              <span class="nav-text">未读邮件</span>
+              <span class="nav-count" id="count-unread">0</span>
+            </li>
+            <li class="nav-item" data-filter="codes">
+              <span class="nav-icon">🔑</span>
+              <span class="nav-text">仅含验证码</span>
+              <span class="nav-count" id="count-codes">0</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-title flex-between">
+            <span>活跃收件别名</span>
+            <span class="badge-sm" id="unique-inboxes-count">0</span>
+          </div>
+          <div class="inbox-list" id="inbox-aliases-list">
+            <div class="empty-hint">暂无活跃别名</div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <button class="btn btn-ghost btn-danger w-full" id="btn-clear-all">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            清空所有邮件
+          </button>
+        </div>
+      </aside>
+
+      <!-- Center: Mail List Panel -->
+      <section class="app-list-panel">
+        <div class="list-header">
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="search-input" placeholder="搜索收件人、发件人、主题、关键字...">
+          </div>
+          <button class="btn-icon" id="btn-refresh-list" title="手动刷新">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+        </div>
+
+        <div class="mail-cards-container" id="mail-cards-list">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>正在加载邮件...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Mail Detail & Sandbox View -->
+      <section class="app-detail-panel" id="detail-panel">
+        <div class="empty-detail-state" id="empty-detail-state">
+          <div class="empty-icon">📨</div>
+          <h3>选择左侧邮件查看详情</h3>
+          <p>支持完整 HTML 邮件沙箱渲染、纯文本切换与验证码一键复制</p>
+        </div>
+
+        <div class="detail-content" id="detail-content" style="display: none;">
+          <!-- Detail Header -->
+          <div class="detail-header">
+            <div class="detail-title-row">
+              <h2 class="detail-subject" id="detail-subject">邮件主题</h2>
+              <div class="detail-actions">
+                <button class="btn btn-outline btn-sm" id="btn-download-eml">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  EML
+                </button>
+                <button class="btn btn-ghost btn-danger btn-sm" id="btn-delete-current" title="删除此邮件">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- OTP Highlight Banner (if any) -->
+            <div class="otp-highlight-banner" id="otp-highlight-banner" style="display: none;">
+              <div class="otp-banner-left">
+                <div class="otp-tag" id="otp-service-tag">Apple</div>
+                <div class="otp-value" id="otp-highlight-value">839210</div>
+                <div class="otp-desc" id="otp-snippet">识别到本次验证码</div>
+              </div>
+              <button class="btn btn-success" id="btn-oneclick-copy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                一键复制
+              </button>
+            </div>
+
+            <div class="detail-meta-grid">
+              <div class="meta-row">
+                <span class="meta-label">发件人:</span>
+                <span class="meta-val highlight" id="detail-from"></span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">收件人:</span>
+                <span class="meta-val highlight" id="detail-to"></span>
+              </div>
+              <div class="meta-row">
+                <span class="meta-label">时间:</span>
+                <span class="meta-val" id="detail-time"></span>
+              </div>
+            </div>
+
+            <!-- View Tabs -->
+            <div class="detail-tabs">
+              <button class="tab-btn active" data-tab="html">HTML 预览</button>
+              <button class="tab-btn" data-tab="text">纯文本内容</button>
+              <button class="tab-btn" data-tab="otp">提取的验证码/链接</button>
+              <button class="tab-btn" data-tab="raw">Raw 邮件头信息</button>
+            </div>
+          </div>
+
+          <!-- Tab Content Views -->
+          <div class="tab-panels">
+            <div class="tab-panel active" id="panel-html">
+              <iframe id="html-iframe" sandbox="allow-same-origin" class="html-preview-frame"></iframe>
+            </div>
+            <div class="tab-panel" id="panel-text">
+              <pre class="text-preview" id="text-preview-content"></pre>
+            </div>
+            <div class="tab-panel" id="panel-otp">
+              <div class="otp-table-container" id="otp-table-container"></div>
+            </div>
+            <div class="tab-panel" id="panel-raw">
+              <pre class="raw-preview" id="raw-preview-content"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Modal: Domain & Apple ID Configuration Wizard (域名与 Apple ID 配置向导) -->
+    <div class="modal-backdrop" id="modal-domain-wizard" style="display: none;">
+      <div class="modal-card modal-lg">
+        <div class="modal-header">
+          <h3>🌐 域名与 Apple ID 邮件地址配置向导</h3>
+          <button class="btn-close" id="btn-close-wizard">&times;</button>
+        </div>
+        <div class="modal-body markdown-body">
+          <div class="config-card" style="margin-bottom: 16px; background-color: #f0f9ff; border-color: #bae6fd;">
+            <div style="font-weight: 700; color: #0369a1; font-size: 14px; margin-bottom: 6px;">💡 核心原理简述：</div>
+            <p style="font-size: 13px; color: #0c4a6e; margin-bottom: 0;">
+              只要您拥有一个域名（例如 <code>mydomain.com</code>），您可以在 Apple ID 上填写<strong>该域名下的任意前缀邮箱</strong>（如 <code>apple01@mydomain.com</code>）。通过 Cloudflare 免费邮件路由或 DNS 解析，所有发送到该邮箱的邮件都会自动流入本系统！
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">输入您的自有域名 (用于自动生成配置):</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="wizard-domain-input" class="form-input" value="mydomain.com" placeholder="例如: abc.com 或 mymail.xyz">
+              <button type="button" class="btn btn-primary" id="btn-gen-wizard">生成配置方案</button>
+            </div>
+          </div>
+
+          <div class="wizard-steps-container">
+            <div class="wizard-step-box">
+              <div class="step-num">Step 1</div>
+              <div class="step-content">
+                <div class="step-title">您在 Apple ID 上可以填写的邮箱地址</div>
+                <p class="step-desc">系统支持“通配符任意收件”，您可以在注册或修改 Apple ID 时填写以下任意邮箱：</p>
+                <div class="email-chips-row" id="wizard-email-chips">
+                  <!-- Generated via JS -->
+                </div>
+              </div>
+            </div>
+
+            <div class="wizard-step-box">
+              <div class="step-num">Step 2</div>
+              <div class="step-content">
+                <div class="step-title">方案 A (推荐)：使用 Cloudflare 免费邮件路由 (免公网25端口)</div>
+                <ol style="font-size: 13px; margin-top: 6px;">
+                  <li>将域名 DNS 托管在 <strong>Cloudflare</strong>（免费）。</li>
+                  <li>进入 <strong>Email Routing (电子邮件路由)</strong>，开启并添加 Catch-all 规则指向 <strong>Worker</strong>。</li>
+                  <li>在 Worker 中填入以下自动化转发代码 (已自动填入您的域名与接口)：</li>
+                </ol>
+                <div class="code-block-wrapper" style="margin-top: 8px;">
+                  <pre><code id="wizard-cf-worker-code"></code></pre>
+                  <button class="btn btn-outline btn-sm copy-snippet-btn" id="btn-copy-worker">复制代码</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="wizard-step-box">
+              <div class="step-num">Step 3</div>
+              <div class="step-content">
+                <div class="step-title">方案 B：直接设置域名 MX 记录 (自建服务器直收)</div>
+                <p class="step-desc">在域名的 DNS 解析后台添加一条 MX 记录：</p>
+                <table class="config-table">
+                  <thead>
+                    <tr>
+                      <th>记录类型</th>
+                      <th>主机记录 (Name)</th>
+                      <th>记录值 (Value)</th>
+                      <th>优先级 (Priority)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>MX</code></td>
+                      <td><code>@</code></td>
+                      <td id="wizard-mx-val">您的服务器公网 IP 或解析域名</td>
+                      <td><code>10</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" id="btn-close-wizard-footer">完成</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Settings Modal (系统与邮件配置) -->
+    <div class="modal-backdrop" id="modal-settings" style="display: none;">
+      <div class="modal-card modal-lg">
+        <div class="modal-header">
+          <h3>⚙️ 系统与邮件服务配置</h3>
+          <button class="btn-close" id="btn-close-settings">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="settings-form">
+            <div class="config-grid">
+              <div class="config-card">
+                <h4>🔐 访问安全与鉴权配置</h4>
+                <div class="form-group">
+                  <label class="form-label">API 访问密钥 (API Key)</label>
+                  <input type="text" id="cfg-api-key" class="form-input" placeholder="留空则为内网免鉴权模式">
+                  <small class="form-help">设置后，请求 <code>/api/v1/codes/*</code> 可配合 Header <code>X-API-Key</code> 或参数鉴权。</small>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">IMAP 访问密码</label>
+                  <input type="text" id="cfg-imap-pass" class="form-input" value="password123">
+                  <small class="form-help">使用 Python imaplib 或第三方客户端连接 1143 端口时的统一登录密码。</small>
+                </div>
+              </div>
+
+              <div class="config-card">
+                <h4>🔍 验证码识别引擎自定义关键词</h4>
+                <div class="form-group">
+                  <label class="form-label">触发识别的关键词列表 (逗号分隔)</label>
+                  <textarea id="cfg-otp-keywords" class="form-textarea" rows="4" placeholder="验证码, 校验码, security code, otp..."></textarea>
+                  <small class="form-help">智能提取引擎在邮件遇到这些关键词时将自动解析临近的 4~8 位数字/字母或链接。</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="config-card" style="margin-top: 16px;">
+              <h4>📡 服务端口运行状态 (只读)</h4>
+              <div class="status-grid">
+                <div class="stat-box">
+                  <div class="stat-title">REST API 端口</div>
+                  <div class="stat-value" id="stat-api-port">8000</div>
+                </div>
+                <div class="stat-box">
+                  <div class="stat-title">SMTP 接收端口</div>
+                  <div class="stat-value" id="stat-smtp-port">2525</div>
+                </div>
+                <div class="stat-box">
+                  <div class="stat-title">虚拟 IMAP 端口</div>
+                  <div class="stat-value" id="stat-imap-port">1143</div>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btn-cancel-settings">取消</button>
+          <button class="btn btn-primary" id="btn-save-settings">保存配置</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Test Email Injector (模拟收件测试) -->
+    <div class="modal-backdrop" id="modal-test" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>🧪 模拟收件测试 (快捷注入一封邮件)</h3>
+          <button class="btn-close" id="btn-close-test">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">快速预设场景:</label>
+            <div class="preset-buttons">
+              <button type="button" class="btn btn-outline btn-sm preset-btn" data-preset="apple">Apple ID 验证码</button>
+              <button type="button" class="btn btn-outline btn-sm preset-btn" data-preset="github">GitHub 安全码</button>
+              <button type="button" class="btn btn-outline btn-sm preset-btn" data-preset="telegram">Telegram 登录码</button>
+              <button type="button" class="btn btn-outline btn-sm preset-btn" data-preset="google">Google 验证码</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">发件人 (From):</label>
+            <input type="text" id="test-from" class="form-input" value="appleid@id.apple.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">收件人 (To - 您的目标别名):</label>
+            <input type="text" id="test-to" class="form-input" value="my_icloud@domain.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">邮件主题 (Subject):</label>
+            <input type="text" id="test-subject" class="form-input" value="您的 Apple ID 验证码是 948210">
+          </div>
+          <div class="form-group">
+            <label class="form-label">邮件正文 (Body Text):</label>
+            <textarea id="test-body" class="form-textarea" rows="4">您好，您的 Apple ID 验证码是 948210。请在 10 分钟内输入此代码以完成登录。</textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btn-cancel-test">取消</button>
+          <button class="btn btn-success" id="btn-send-test">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            立即注入并测试
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: API / IMAP Code Generator -->
+    <div class="modal-backdrop" id="modal-api" style="display: none;">
+      <div class="modal-card modal-lg">
+        <div class="modal-header">
+          <h3>极速自动化取码代码生成器 (API & IMAP)</h3>
+          <button class="btn-close" id="btn-close-api">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="generator-config">
+            <label class="form-label">目标接收邮箱 (支持模糊或精准匹配):</label>
+            <input type="text" id="gen-email-input" class="form-input" value="test@domain.com" placeholder="例如: user@domain.com 或 user">
+          </div>
+
+          <div class="code-snippets-tabs">
+            <div class="tab-row">
+              <button class="code-tab active" data-lang="python-api">Python (REST API 长轮询取码)</button>
+              <button class="code-tab" data-lang="python-imap">Python (标准 IMAP 客户端拉取)</button>
+              <button class="code-tab" data-lang="curl">cURL 命令</button>
+              <button class="code-tab" data-lang="nodejs">Node.js (Fetch)</button>
+            </div>
+            <div class="code-block-wrapper">
+              <pre><code id="code-snippet-box"></code></pre>
+              <button class="btn btn-outline btn-sm copy-snippet-btn" id="btn-copy-snippet">复制示例代码</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="btn-close-api-footer">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <script src="/static/js/app.js?v=1.0.4"></script>
+</body>
+</html>
