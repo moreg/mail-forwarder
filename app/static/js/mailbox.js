@@ -310,25 +310,92 @@ function filterAndRenderList() {
   });
 }
 
-// Select Single Email
+const guestEmailDetailCache = new Map();
+
+// Select Single Email with 0ms Instant Preview & Local Caching
 async function selectGuestEmail(id) {
   guestState.selectedEmailId = id;
-  filterAndRenderList();
+  
+  // 1. Update active card highlight directly
+  const container = document.getElementById('guest-cards-list');
+  if (container) {
+    container.querySelectorAll('.mail-card').forEach(c => {
+      if (parseInt(c.getAttribute('data-id')) === id) {
+        c.classList.add('active');
+      } else {
+        c.classList.remove('active');
+      }
+    });
+  }
 
   const emptyState = document.getElementById('guest-empty-state');
   const detailContent = document.getElementById('guest-detail-content');
+  if (emptyState) emptyState.style.display = 'none';
+  if (detailContent) detailContent.style.display = 'flex';
 
+  // 2. Instant Optimistic Render from summary
+  const summaryItem = (guestState.emails || []).find(e => e.id === id);
+  if (summaryItem) {
+    renderGuestEmailDetailPreview(summaryItem);
+  }
+
+  // 3. Check memory cache for instant full rendering
+  if (guestEmailDetailCache.has(id)) {
+    renderGuestEmailDetail(guestEmailDetailCache.get(id));
+    return;
+  }
+
+  // 4. Fetch full details asynchronously
   try {
     const res = await fetch(`/api/v1/mailboxes/${encodeURIComponent(guestState.mailbox)}/emails/${id}`);
     const json = await res.json();
     if (json.success) {
-      if (emptyState) emptyState.style.display = 'none';
-      if (detailContent) detailContent.style.display = 'flex';
-      renderGuestEmailDetail(json.data);
+      guestEmailDetailCache.set(id, json.data);
+      if (guestState.selectedEmailId === id) {
+        renderGuestEmailDetail(json.data);
+      }
     }
   } catch (err) {
     showToast('加载邮件详情失败: ' + err.message);
   }
+}
+
+// Instant 0ms Preview Render for Guest Page
+function renderGuestEmailDetailPreview(email) {
+  const subjEl = document.getElementById('g-detail-subject');
+  const fromEl = document.getElementById('g-detail-from');
+  const toEl = document.getElementById('g-detail-to');
+  const timeEl = document.getElementById('g-detail-time');
+
+  if (subjEl) subjEl.innerText = email.subject || '(无主题)';
+  if (fromEl) fromEl.innerText = email.from_address;
+  if (toEl) toEl.innerText = email.to_address;
+  if (timeEl) timeEl.innerText = formatTime(email.created_at);
+
+  const otpBanner = document.getElementById('g-otp-banner');
+  if (email.latest_code) {
+    if (otpBanner) otpBanner.style.display = 'flex';
+    const tagEl = document.getElementById('g-otp-tag');
+    const valEl = document.getElementById('g-otp-val');
+    const snipEl = document.getElementById('g-otp-snippet');
+    const copyBtn = document.getElementById('btn-g-copy-inline');
+
+    if (tagEl) tagEl.innerText = email.service_name || 'OTP';
+    if (valEl) valEl.innerText = email.latest_code;
+    if (snipEl) snipEl.innerText = '已识别到验证码';
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(email.latest_code).then(() => {
+          showToast(`已复制: ${email.latest_code}`);
+        });
+      };
+    }
+  } else {
+    if (otpBanner) otpBanner.style.display = 'none';
+  }
+
+  const textEl = document.getElementById('g-text-preview-content');
+  if (textEl && email.body_text) textEl.innerText = email.body_text;
 }
 
 function renderGuestEmailDetail(email) {

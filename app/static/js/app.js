@@ -1037,8 +1037,11 @@ function renderGroupsTree(groups) {
   });
 }
 
+// Detail cache to avoid repeated network fetching when switching back and forth between emails
+const emailDetailCache = new Map();
+
 // Fetch Emails
-async function fetchEmails() {
+async function fetchEmails(autoSelectFirst = false) {
   let url = '/api/v1/emails?page=1&page_size=50';
   if (state.selectedGroup && !state.selectedAlias) {
     url += `&group=${encodeURIComponent(state.selectedGroup)}`;
@@ -1069,6 +1072,13 @@ async function fetchEmails() {
       }
       state.emails = items;
       renderEmailList(items);
+
+      if (autoSelectFirst && items.length > 0) {
+        selectEmail(items[0].id);
+      } else if (state.selectedEmailId && !items.some(e => e.id === state.selectedEmailId)) {
+        state.selectedEmailId = null;
+        renderDetailEmpty();
+      }
     }
   } catch (e) {
     if (mailCardsList) mailCardsList.innerHTML = `<div class="empty-hint">加载失败: ${e.message}</div>`;
@@ -1133,6 +1143,7 @@ function renderEmailList(items) {
         const data = await res.json();
         if (data.success) {
           showToast('邮件已删除');
+          emailDetailCache.delete(id);
           if (state.selectedEmailId === id) {
             state.selectedEmailId = null;
             renderDetailEmpty();
@@ -1168,21 +1179,110 @@ function renderEmailList(items) {
   });
 }
 
-// Select Single Email
+// Select Single Email with 0ms Instant Preview & Local Caching
 async function selectEmail(id) {
   state.selectedEmailId = id;
-  renderEmailList(state.emails);
 
+  // 1. Update active card highlight directly (0ms DOM manipulation, no full list rebuild)
+  if (mailCardsList) {
+    mailCardsList.querySelectorAll('.mail-card').forEach(c => {
+      if (parseInt(c.getAttribute('data-id')) === id) {
+        c.classList.add('active');
+        c.classList.remove('unread');
+      } else {
+        c.classList.remove('active');
+      }
+    });
+  }
+
+  // 2. Instant Optimistic Render from summary
+  const summaryItem = (state.emails || []).find(e => e.id === id);
+  if (summaryItem) {
+    if (!summaryItem.is_read) {
+      summaryItem.is_read = 1;
+      const unreadCountEl = document.getElementById('count-unread');
+      if (unreadCountEl) {
+        const cur = parseInt(unreadCountEl.innerText) || 0;
+        if (cur > 0) unreadCountEl.innerText = cur - 1;
+      }
+    }
+    renderEmailDetailPreview(summaryItem);
+  }
+
+  // 3. Check memory cache for instant full rendering
+  if (emailDetailCache.has(id)) {
+    renderEmailDetail(emailDetailCache.get(id));
+    return;
+  }
+
+  // 4. Fetch full details asynchronously
   try {
     const res = await apiFetch(`/api/v1/emails/${id}`);
     const json = await res.json();
     if (json.success) {
-      renderEmailDetail(json.data);
-      fetchStats();
+      emailDetailCache.set(id, json.data);
+      if (state.selectedEmailId === id) {
+        renderEmailDetail(json.data);
+      }
     }
   } catch (e) {
     showToast('获取邮件详情失败: ' + e.message);
   }
+}
+
+// Instant 0ms Preview Render
+function renderEmailDetailPreview(email) {
+  if (emptyDetailState) emptyDetailState.style.display = 'none';
+  if (detailContent) detailContent.style.display = 'flex';
+
+  const subjEl = document.getElementById('detail-subject');
+  const fromEl = document.getElementById('detail-from');
+  const toEl = document.getElementById('detail-to');
+  const timeEl = document.getElementById('detail-time');
+  const forwardRow = document.getElementById('meta-row-forwarded');
+  const forwardEl = document.getElementById('detail-forwarded');
+
+  if (subjEl) subjEl.innerText = email.subject || '(无主题)';
+  if (fromEl) fromEl.innerText = email.from_address;
+  if (toEl) toEl.innerText = email.to_address;
+  if (timeEl) timeEl.innerText = email.created_at;
+
+  if (forwardRow && forwardEl) {
+    if (email.forwarded_by && email.forwarded_by !== '直接收件') {
+      forwardEl.innerText = email.forwarded_by;
+      forwardRow.style.display = 'flex';
+    } else {
+      forwardRow.style.display = 'none';
+    }
+  }
+
+  // OTP Banner Preview
+  const otpBanner = document.getElementById('otp-highlight-banner');
+  if (email.latest_code) {
+    if (otpBanner) otpBanner.style.display = 'flex';
+    const tagEl = document.getElementById('otp-service-tag');
+    const valEl = document.getElementById('otp-highlight-value');
+    const snipEl = document.getElementById('otp-snippet');
+    const copyBtn = document.getElementById('btn-oneclick-copy');
+
+    if (tagEl) tagEl.innerText = email.service_name || 'OTP';
+    if (valEl) valEl.innerText = email.latest_code;
+    if (snipEl) snipEl.innerText = '已识别到验证信息';
+
+    if (copyBtn) {
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(email.latest_code).then(() => {
+          showToast(`已复制验证码: ${email.latest_code}`);
+        });
+      };
+    }
+  } else {
+    if (otpBanner) otpBanner.style.display = 'none';
+  }
+
+  // Plain Text Preview
+  const textEl = document.getElementById('text-preview-content');
+  if (textEl && email.body_text) textEl.innerText = email.body_text;
 }
 
 function renderEmailDetail(email) {

@@ -51,9 +51,10 @@ async def get_single_email(email_id: int):
     item = await get_email_by_id(email_id)
     if not item:
         raise HTTPException(status_code=404, detail="Email not found")
-    # Mark as read automatically when opened
-    await mark_email_read(email_id, True)
-    item["is_read"] = 1
+    # Only mark as read in DB if it was unread to avoid unnecessary disk write/commits
+    if not item.get("is_read"):
+        await mark_email_read(email_id, True)
+        item["is_read"] = 1
     return {
         "success": True,
         "data": item
