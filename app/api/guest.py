@@ -85,36 +85,76 @@ async def get_guest_latest_code(
     timeout: int = Query(0, ge=0, le=60)
 ):
     """
-    访客专属极速取码接口 (支持长轮询挂起等待)
+    访客专属极速取码接口 (支持事件驱动瞬时响应与长轮询挂起)
     """
-    start_time = time.time()
-    while True:
-        record = await get_latest_code(
-            to_address=email_address,
-            service_name=service,
-            after_id=after_id
-        )
-        if record:
-            return {
-                "success": True,
-                "found": True,
-                "code": record["code"],
-                "code_type": record["code_type"],
-                "service_name": record["service_name"],
-                "verification_url": record.get("verification_url", ""),
-                "to_address": record["to_address"],
-                "from_address": record.get("from_address", ""),
-                "subject": record.get("subject", ""),
-                "created_at": record["created_at"],
-                "context_snippet": record.get("context_snippet", ""),
-                "email_id": record["email_id"],
-                "code_id": record["id"]
-            }
+    # 1. 首次快速查询已有记录
+    record = await get_latest_code(
+        to_address=email_address,
+        service_name=service,
+        after_id=after_id
+    )
+    if record:
+        return {
+            "success": True,
+            "found": True,
+            "code": record["code"],
+            "code_type": record["code_type"],
+            "service_name": record["service_name"],
+            "verification_url": record.get("verification_url", ""),
+            "to_address": record["to_address"],
+            "from_address": record.get("from_address", ""),
+            "subject": record.get("subject", ""),
+            "created_at": record["created_at"],
+            "context_snippet": record.get("context_snippet", ""),
+            "email_id": record["email_id"],
+            "code_id": record["id"]
+        }
 
-        elapsed = time.time() - start_time
-        if elapsed >= timeout or timeout == 0:
-            break
-        await asyncio.sleep(1.0)
+    if timeout <= 0:
+        return {
+            "success": True,
+            "found": False,
+            "code": None,
+            "message": f"未收到匹配 '{email_address}' 的新验证码"
+        }
+
+    # 2. 响应式事件驱动挂起等待
+    start_time = time.time()
+    queue = broadcaster.subscribe()
+    try:
+        while True:
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                break
+            
+            try:
+                await asyncio.wait_for(queue.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                break
+
+            record = await get_latest_code(
+                to_address=email_address,
+                service_name=service,
+                after_id=after_id
+            )
+            if record:
+                return {
+                    "success": True,
+                    "found": True,
+                    "code": record["code"],
+                    "code_type": record["code_type"],
+                    "service_name": record["service_name"],
+                    "verification_url": record.get("verification_url", ""),
+                    "to_address": record["to_address"],
+                    "from_address": record.get("from_address", ""),
+                    "subject": record.get("subject", ""),
+                    "created_at": record["created_at"],
+                    "context_snippet": record.get("context_snippet", ""),
+                    "email_id": record["email_id"],
+                    "code_id": record["id"]
+                }
+    finally:
+        broadcaster.unsubscribe(queue)
 
     return {
         "success": True,

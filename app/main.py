@@ -13,9 +13,10 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import settings, BASE_DIR
-from app.db.database import init_db, cleanup_expired_emails
+from app.db.database import init_db, cleanup_expired_emails, close_db
 from app.servers.smtp_server import smtp_manager
 from app.servers.imap_server import imap_manager
 from app.api.router import api_router
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down servers...")
     smtp_manager.stop()
     await imap_manager.stop()
+    await close_db()
     logger.info("Shutdown complete.")
 
 app = FastAPI(
@@ -62,6 +64,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# GZip compression middleware (compresses responses > 500 bytes)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # CORS middleware for open API access
 app.add_middleware(

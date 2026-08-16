@@ -1,41 +1,36 @@
-server:
-  host: "0.0.0.0"
-  port: 8000
-  admin_password: ""                # Web 登录管理员密码，留空表示免登录模式
-  api_key: ""                       # 留空表示开发/内网免鉴权模式
-
-smtp:
-  enabled: true
-  host: "0.0.0.0"
-  port: 2525                        # 默认 2525 便于本地非管理员测试，若作为正式 MX 请改为 25
-  domain: "localhost"
-  max_message_size: 10485760
-
 imap:
+  auth_password: password123
   enabled: true
-  host: "0.0.0.0"
-  port: 1143                        # 默认 1143，生产可改为 143
-  auth_password: "password123"
-
-storage:
-  db_path: "data/mailbox.db"
-  save_raw_eml: true
-  retention_days: 30
-
+  host: 0.0.0.0
+  port: 1143
 otp:
   keywords:
-    - "验证码"
-    - "校验码"
-    - "动态码"
-    - "激活码"
-    - "安全码"
-    - "动态口令"
-    - "verification code"
-    - "security code"
-    - "confirmation code"
-    - "one-time password"
-    - "otp"
-    - "pin code"
-    - "passcode"
-    - "auth code"
-    - "login code"
+  - 验证码
+  - 校验码
+  - 动态码
+  - 激活码
+  - 安全码
+  - 动态口令
+  - verification code
+  - security code
+  - confirmation code
+  - one-time password
+  - otp
+  - pin code
+  - passcode
+  - auth code
+  - login code
+server:
+  api_key: ''
+  host: 0.0.0.0
+  port: 8000
+smtp:
+  domain: localhost
+  enabled: true
+  host: 0.0.0.0
+  max_message_size: 10485760
+  port: 2525
+storage:
+  db_path: data/mailbox.db
+  retention_days: 30
+  save_raw_eml: true

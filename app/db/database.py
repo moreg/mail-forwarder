@@ -1,4 +1,5 @@
 import json
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -57,20 +58,56 @@ CREATE INDEX IF NOT EXISTS idx_emails_to ON emails(to_address);
 CREATE INDEX IF NOT EXISTS idx_emails_forwarded ON emails(forwarded_by);
 CREATE INDEX IF NOT EXISTS idx_emails_created ON emails(created_at);
 CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read);
+CREATE INDEX IF NOT EXISTS idx_emails_to_created ON emails(to_address, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_emails_fwd_created ON emails(forwarded_by, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_codes_to ON verification_codes(to_address);
 CREATE INDEX IF NOT EXISTS idx_codes_created ON verification_codes(created_at);
+CREATE INDEX IF NOT EXISTS idx_codes_email_id ON verification_codes(email_id);
+CREATE INDEX IF NOT EXISTS idx_codes_to_id ON verification_codes(to_address, id DESC);
 """
+
+class DatabaseManager:
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._conn: Optional[aiosqlite.Connection] = None
+        self._lock = asyncio.Lock()
+
+    async def get_connection(self) -> aiosqlite.Connection:
+        if self._conn is None:
+            async with self._lock:
+                if self._conn is None:
+                    self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                    conn = await aiosqlite.connect(str(self.db_path))
+                    conn.row_factory = aiosqlite.Row
+                    await conn.execute("PRAGMA journal_mode = WAL;")
+                    await conn.execute("PRAGMA synchronous = NORMAL;")
+                    await conn.execute("PRAGMA foreign_keys = ON;")
+                    await conn.execute("PRAGMA busy_timeout = 5000;")
+                    await conn.execute("PRAGMA cache_size = -64000;")
+                    await conn.execute("PRAGMA mmap_size = 268435456;")
+                    await conn.execute("PRAGMA temp_store = MEMORY;")
+                    self._conn = conn
+        return self._conn
+
+    async def close(self):
+        async with self._lock:
+            if self._conn is not None:
+                try:
+                    await self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+
+db_manager = DatabaseManager(DB_PATH)
 
 @asynccontextmanager
 async def get_db_connection() -> AsyncGenerator[aiosqlite.Connection, None]:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    db = await aiosqlite.connect(str(DB_PATH))
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys = ON;")
-    try:
-        yield db
-    finally:
-        await db.close()
+    conn = await db_manager.get_connection()
+    async with db_manager._lock:
+        yield conn
+
+async def close_db():
+    await db_manager.close()
 
 async def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +240,20 @@ async def get_emails(
         async with db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+async def get_imap_mailbox_emails(to_address: Optional[str] = None, limit: int = 500) -> list[dict[str, Any]]:
+    query = "SELECT id, is_read, created_at FROM emails WHERE 1=1"
+    params: list[Any] = []
+    if to_address:
+        query += " AND to_address LIKE ?"
+        params.append(f"%{to_address}%")
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    async with get_db_connection() as db:
+        async with db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
 
 async def count_emails(
     to_address: Optional[str] = None,
@@ -360,9 +411,15 @@ async def get_codes(
 async def get_forwarding_groups_hierarchy() -> list[dict[str, Any]]:
     """
     获取按“转发母账号/转发来源 -> 下属别名邮箱”的层级结构统计列表
+    通过单次聚合与窗口关联彻底消灭 N+1 查询
     """
     async with get_db_connection() as db:
         query = """
+            WITH latest_codes AS (
+                SELECT to_address, code, service_name, created_at,
+                       ROW_NUMBER() OVER (PARTITION BY to_address ORDER BY id DESC) as rn
+                FROM verification_codes
+            )
             SELECT 
                 CASE 
                     WHEN e.forwarded_by IS NULL OR TRIM(e.forwarded_by) = '' THEN '直接收件'
@@ -371,8 +428,11 @@ async def get_forwarding_groups_hierarchy() -> list[dict[str, Any]]:
                 e.to_address,
                 COUNT(*) as email_count,
                 SUM(CASE WHEN e.is_read = 0 THEN 1 ELSE 0 END) as unread_count,
-                MAX(e.created_at) as last_seen
+                MAX(e.created_at) as last_seen,
+                lc.code as latest_code,
+                lc.service_name as latest_service
             FROM emails e
+            LEFT JOIN latest_codes lc ON lc.to_address = e.to_address AND lc.rn = 1
             GROUP BY group_id, e.to_address
             ORDER BY MAX(e.created_at) DESC
         """
@@ -395,20 +455,8 @@ async def get_forwarding_groups_hierarchy() -> list[dict[str, Any]]:
             
             groups_map[gid]["total_emails"] += r["email_count"]
             groups_map[gid]["unread_emails"] += (r["unread_count"] or 0)
-            if r["last_seen"] > groups_map[gid]["last_seen"]:
+            if r["last_seen"] and r["last_seen"] > groups_map[gid]["last_seen"]:
                 groups_map[gid]["last_seen"] = r["last_seen"]
-
-            # Query latest verification code for this alias
-            async with db.execute(
-                """
-                SELECT code, service_name, created_at 
-                FROM verification_codes 
-                WHERE to_address = ? 
-                ORDER BY id DESC LIMIT 1
-                """,
-                (r["to_address"],)
-            ) as code_cur:
-                latest_code_row = await code_cur.fetchone()
 
             groups_map[gid]["aliases"].append({
                 "to_address": r["to_address"],
@@ -416,20 +464,23 @@ async def get_forwarding_groups_hierarchy() -> list[dict[str, Any]]:
                 "email_count": r["email_count"],
                 "unread_count": r["unread_count"] or 0,
                 "last_seen": r["last_seen"],
-                "latest_code": latest_code_row["code"] if latest_code_row else None,
-                "latest_service": latest_code_row["service_name"] if latest_code_row else None
+                "latest_code": r["latest_code"],
+                "latest_service": r["latest_service"]
             })
 
         return list(groups_map.values())
 
 async def get_mailbox_stats() -> dict[str, Any]:
     async with get_db_connection() as db:
-        async with db.execute("SELECT COUNT(*) as total_emails, SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread_emails FROM emails") as cursor:
-            email_stats = await cursor.fetchone()
-        async with db.execute("SELECT COUNT(*) as total_codes FROM verification_codes") as cursor:
-            code_stats = await cursor.fetchone()
-        async with db.execute("SELECT COUNT(DISTINCT to_address) as unique_inboxes FROM emails") as cursor:
-            inbox_stats = await cursor.fetchone()
+        # Combined aggregate query
+        async with db.execute("""
+            SELECT 
+                (SELECT COUNT(*) FROM emails) as total_emails,
+                (SELECT COUNT(*) FROM emails WHERE is_read = 0) as unread_emails,
+                (SELECT COUNT(*) FROM verification_codes) as total_codes,
+                (SELECT COUNT(DISTINCT to_address) FROM emails) as unique_inboxes
+        """) as cursor:
+            agg = await cursor.fetchone()
         
         async with db.execute("SELECT to_address, COUNT(*) as count, MAX(created_at) as last_seen FROM emails GROUP BY to_address ORDER BY count DESC LIMIT 10") as cursor:
             inboxes_rows = await cursor.fetchall()
@@ -443,10 +494,10 @@ async def get_mailbox_stats() -> dict[str, Any]:
     groups_hierarchy = await get_forwarding_groups_hierarchy()
 
     return {
-        "total_emails": email_stats["total_emails"] if email_stats else 0,
-        "unread_emails": email_stats["unread_emails"] if email_stats and email_stats["unread_emails"] else 0,
-        "total_codes": code_stats["total_codes"] if code_stats else 0,
-        "unique_inboxes": inbox_stats["unique_inboxes"] if inbox_stats else 0,
+        "total_emails": agg["total_emails"] if agg else 0,
+        "unread_emails": agg["unread_emails"] if agg else 0,
+        "total_codes": agg["total_codes"] if agg else 0,
+        "unique_inboxes": agg["unique_inboxes"] if agg else 0,
         "groups_count": len(groups_hierarchy),
         "groups": groups_hierarchy,
         "top_inboxes": [dict(r) for r in inboxes_rows],

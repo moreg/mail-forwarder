@@ -1,3 +1,4 @@
+import re
 import email
 from email import policy
 from email.header import decode_header
@@ -5,6 +6,8 @@ from email.message import EmailMessage
 from email.utils import parseaddr
 from typing import Any, Tuple, List, Optional
 from bs4 import BeautifulSoup
+
+EMAIL_ADDR_RE = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+')
 
 def decode_mime_header(header_str: Optional[str]) -> str:
     if not header_str:
@@ -131,8 +134,7 @@ def extract_forwarding_address(msg: Any, to_addr: str) -> str:
     # 4. 检查 X-Forwarded-For / X-Forwarded-To
     fwd_for = msg.get("X-Forwarded-For") or msg.get("X-Forwarded-To")
     if fwd_for:
-        import re
-        matches = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', str(fwd_for))
+        matches = EMAIL_ADDR_RE.findall(str(fwd_for))
         for m in matches:
             if m.lower() != to_addr.lower():
                 return m.strip().lower()

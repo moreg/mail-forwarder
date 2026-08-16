@@ -44,3 +44,13 @@ def test_magic_link_extraction():
     assert len(otps) >= 1
     assert any(o.code_type == "link" for o in otps)
     assert "https://auth.openai.com/verify-email" in otps[0].verification_url
+
+def test_custom_otp_keywords():
+    # 测试自定义特殊关键词比如 "通行码" / "提取口令"
+    subject = "系统通知"
+    body = "您申请的通行码为：778899，请妥善保管。"
+    from_addr = "notice@customservice.com"
+    otps = extract_otp_from_email(subject, body, from_addr, custom_keywords=["通行码", "提取口令"])
+    assert len(otps) >= 1
+    assert otps[0].code == "778899"
+

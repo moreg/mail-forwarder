@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from app.core.config import settings
 from app.db.database import (
-    get_emails, get_email_by_id, count_emails, mark_email_read, delete_email, get_db_connection
+    get_emails, get_imap_mailbox_emails, get_email_by_id, count_emails, mark_email_read, delete_email, get_db_connection
 )
 
 logger = logging.getLogger("imap_server")
@@ -139,7 +139,7 @@ class ImapSession:
         self.state = "SELECTED"
 
         target_to = self.username if (self.username and "@" in self.username) else None
-        emails = await get_emails(to_address=target_to, limit=500)
+        emails = await get_imap_mailbox_emails(to_address=target_to, limit=500)
         self.selected_emails = list(reversed(emails))
 
         count = len(self.selected_emails)
@@ -157,7 +157,7 @@ class ImapSession:
 
     async def cmd_status(self, tag: str, args: str):
         target_to = self.username if (self.username and "@" in self.username) else None
-        emails = await get_emails(to_address=target_to, limit=500)
+        emails = await get_imap_mailbox_emails(to_address=target_to, limit=500)
         count = len(emails)
         unseen = sum(1 for e in emails if not e.get("is_read"))
         await self.send_line(f'* STATUS "INBOX" (MESSAGES {count} UNSEEN {unseen} UIDVALIDITY 1)')
@@ -169,8 +169,9 @@ class ImapSession:
             return
 
         target_to = self.username if (self.username and "@" in self.username) else None
-        emails = await get_emails(to_address=target_to, limit=500)
+        emails = await get_imap_mailbox_emails(to_address=target_to, limit=500)
         self.selected_emails = list(reversed(emails))
+
 
         matched_nums = []
         args_upper = args.upper()
