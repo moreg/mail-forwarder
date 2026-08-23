@@ -80,9 +80,16 @@ app.add_middleware(
 # Mount API routes
 app.include_router(api_router)
 
+class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+
 # Mount static files
 static_path = BASE_DIR / "app" / "static"
-app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+app.mount("/static", CachedStaticFiles(directory=str(static_path)), name="static")
 
 @app.get("/", include_in_schema=False)
 async def serve_index():
@@ -93,6 +100,8 @@ async def serve_index():
     )
 
 @app.get("/mailboxes/{email_address}", include_in_schema=False)
+@app.get("/mail/{email_address}", include_in_schema=False)
+@app.get("/m/{email_address}", include_in_schema=False)
 async def serve_guest_mailbox_page(email_address: str):
     mailbox_html = static_path / "mailbox.html"
     return FileResponse(

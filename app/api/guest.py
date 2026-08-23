@@ -34,14 +34,16 @@ async def get_guest_mailbox_data(
         )
 
     offset = (page - 1) * page_size
-    emails = await get_emails(
-        to_address=email_address,
-        search=search,
-        limit=page_size,
-        offset=offset
+    emails, total, latest_otp = await asyncio.gather(
+        get_emails(
+            to_address=email_address,
+            search=search,
+            limit=page_size,
+            offset=offset
+        ),
+        count_emails(to_address=email_address, search=search),
+        get_latest_code(to_address=email_address)
     )
-    total = await count_emails(to_address=email_address, search=search)
-    latest_otp = await get_latest_code(to_address=email_address)
 
     code_val = latest_otp["code"] if latest_otp else None
     created_at_val = latest_otp["created_at"] if latest_otp else (emails[0]["created_at"] if emails else None)

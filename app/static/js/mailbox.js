@@ -35,8 +35,8 @@ function getServiceIcon(serviceName) {
 
 function parseMailboxFromUrl() {
   const path = window.location.pathname;
-  // Match /mailboxes/xxx or /api/v1/mailboxes/xxx
-  const match = path.match(/\/mailboxes\/([^/?#]+)/i);
+  // Match /mailboxes/xxx, /mail/xxx, /m/xxx or /api/v1/mailboxes/xxx
+  const match = path.match(/\/(?:mailboxes|mail|m)\/([^/?#]+)/i);
   if (match && match[1]) {
     return decodeURIComponent(match[1].trim());
   }

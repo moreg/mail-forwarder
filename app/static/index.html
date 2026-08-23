@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>邮件接收与智能取码系统 - MailCapture & OTP Hub</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=1.0.5">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v=1.4.0">
 </head>
 <body>
   <div id="app" class="app-layout">
@@ -273,10 +270,48 @@
             <div class="wizard-step-box">
               <div class="step-num">Step 1</div>
               <div class="step-content">
-                <div class="step-title">您在 Apple ID 上可以填写的邮箱地址</div>
-                <p class="step-desc">系统支持“通配符任意收件”，您可以在注册或修改 Apple ID 时填写以下任意邮箱：</p>
+                <div class="step-title">您在 Apple ID / 第三方服务上可以填写的邮箱地址</div>
+                <p class="step-desc">系统支持“通配符任意收件”，点击可快速复制单个纯邮箱或<strong>邮箱池格式 (邮箱----取件链接)</strong>：</p>
                 <div class="email-chips-row" id="wizard-email-chips">
                   <!-- Generated via JS -->
+                </div>
+
+                <!-- 批量邮箱池生成器 -->
+                <div class="wizard-pool-box">
+                  <div class="pool-box-header">
+                    <div style="font-weight: 700; color: #1e293b; font-size: 13px; display: flex; align-items: center; justify-content: space-between;">
+                      <span>📦 批量生成域名邮箱池 (注册机 / 脚本 / 自动化专属格式)</span>
+                      <span class="badge-sm" id="wizard-pool-count-badge">10 个邮箱</span>
+                    </div>
+                    <div class="pool-controls">
+                      <select id="wizard-pool-type" class="form-select-sm">
+                        <option value="prefix_seq" selected>前缀+序号 (apple01, apple02...)</option>
+                        <option value="random_str">随机英文+数字 (7k3m9, x92b4...)</option>
+                        <option value="name_seq">姓名/身份词 (user1, bot1, vip1...)</option>
+                      </select>
+                      <input type="text" id="wizard-pool-prefix" class="form-input-sm" value="apple" placeholder="自定义前缀" style="width: 100px;">
+                      <select id="wizard-pool-count" class="form-select-sm">
+                        <option value="5">生成 5 个</option>
+                        <option value="10" selected>生成 10 个</option>
+                        <option value="20">生成 20 个</option>
+                        <option value="50">生成 50 个</option>
+                        <option value="100">生成 100 个</option>
+                      </select>
+                      <select id="wizard-pool-format" class="form-select-sm">
+                        <option value="pool_link" selected>格式: 邮箱----取件链接 (标准邮箱池)</option>
+                        <option value="pure_email">格式: 纯邮箱地址 (一行一个)</option>
+                        <option value="pool_api">格式: 邮箱----取码API</option>
+                      </select>
+                      <button type="button" class="btn btn-outline btn-sm" id="btn-regen-pool" style="padding: 4px 8px; font-size: 12px;">🔄 重新生成</button>
+                    </div>
+                  </div>
+                  <textarea id="wizard-pool-textarea" class="export-links-box" rows="7" readonly style="margin-top: 8px; font-size: 12px;" placeholder="点击生成后在此显示邮箱池..."></textarea>
+                  <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-copy-wizard-pool">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      一键复制全部邮箱池
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -493,7 +528,15 @@
           <div class="form-group">
             <label class="form-label">服务访问域名 / 前缀 (自动读取当前域名，可手动修改):</label>
             <input type="text" id="export-domain-input" class="form-input" placeholder="例如: https://mailbox.dscb.top 或 http://127.0.0.1:8000">
-            <small class="form-help">生成的格式为：<code>邮箱别名----取件链接</code>，可直接粘贴分发给访客或脚本处理。</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">导出格式:</label>
+            <select id="export-format-select" class="form-select">
+              <option value="pool_link" selected>标准邮箱池格式 (邮箱----取件链接)</option>
+              <option value="pure_email">纯邮箱清单 (仅邮箱地址)</option>
+              <option value="pool_api">API 取码格式 (邮箱----取码API)</option>
+            </select>
+            <small class="form-help">可选择标准邮箱池格式或纯邮箱清单，直接粘贴分发给访客或脚本/注册机处理。</small>
           </div>
           <div class="form-group">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -548,6 +591,6 @@
     <div id="toast-container" class="toast-container"></div>
   </div>
 
-  <script src="/static/js/app.js?v=1.1.0"></script>
+  <script src="/static/js/app.js?v=1.4.0"></script>
 </body>
 </html>

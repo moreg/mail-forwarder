@@ -58,23 +58,42 @@ CREATE INDEX IF NOT EXISTS idx_emails_to ON emails(to_address);
 CREATE INDEX IF NOT EXISTS idx_emails_forwarded ON emails(forwarded_by);
 CREATE INDEX IF NOT EXISTS idx_emails_created ON emails(created_at);
 CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read);
+CREATE INDEX IF NOT EXISTS idx_emails_to_id ON emails(to_address, id DESC);
 CREATE INDEX IF NOT EXISTS idx_emails_to_created ON emails(to_address, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_emails_fwd_created ON emails(forwarded_by, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_codes_to ON verification_codes(to_address);
 CREATE INDEX IF NOT EXISTS idx_codes_created ON verification_codes(created_at);
 CREATE INDEX IF NOT EXISTS idx_codes_email_id ON verification_codes(email_id);
 CREATE INDEX IF NOT EXISTS idx_codes_to_id ON verification_codes(to_address, id DESC);
+CREATE INDEX IF NOT EXISTS idx_codes_email_id_id ON verification_codes(email_id, id DESC);
 """
 
 class DatabaseManager:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self._conn: Optional[aiosqlite.Connection] = None
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        # In Python 3.10+, Lock is bound to the running loop
+        if self._lock is None or getattr(self._lock, "_loop", None) not in (None, loop):
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def get_connection(self) -> aiosqlite.Connection:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._conn is not None and getattr(self._conn, "_loop", None) not in (None, loop):
+            self._conn = None
+
         if self._conn is None:
-            async with self._lock:
+            async with self._get_lock():
                 if self._conn is None:
                     self.db_path.parent.mkdir(parents=True, exist_ok=True)
                     conn = await aiosqlite.connect(str(self.db_path))
@@ -90,20 +109,22 @@ class DatabaseManager:
         return self._conn
 
     async def close(self):
-        async with self._lock:
-            if self._conn is not None:
-                try:
-                    await self._conn.close()
-                except Exception:
-                    pass
-                self._conn = None
+        if self._conn is not None:
+            async with self._get_lock():
+                if self._conn is not None:
+                    try:
+                        await self._conn.close()
+                    except Exception:
+                        pass
+                    self._conn = None
+            self._lock = None
 
 db_manager = DatabaseManager(DB_PATH)
 
 @asynccontextmanager
 async def get_db_connection() -> AsyncGenerator[aiosqlite.Connection, None]:
     conn = await db_manager.get_connection()
-    async with db_manager._lock:
+    async with db_manager._get_lock():
         yield conn
 
 async def close_db():

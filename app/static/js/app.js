@@ -133,8 +133,11 @@ async function apiFetch(url, options = {}) {
 }
 
 // Init App
+let dashboardInitialized = false;
+
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
+  initDashboard();
   checkAuthAndInit();
 });
 
@@ -280,6 +283,8 @@ async function checkAuthAndInit() {
 }
 
 function initDashboard() {
+  if (dashboardInitialized) return;
+  dashboardInitialized = true;
   setupSSE();
   fetchStats();
   fetchEmails();
@@ -553,15 +558,24 @@ function setupModals() {
 
   bindEvent('export-group-select', 'change', updateExportLinks);
   bindEvent('export-domain-input', 'input', updateExportLinks);
+  bindEvent('export-format-select', 'change', updateExportLinks);
 
   bindClick('btn-copy-all-links', () => {
     const textarea = document.getElementById('export-links-textarea');
     if (textarea && textarea.value) {
       navigator.clipboard.writeText(textarea.value).then(() => {
-        showToast('✅ 已成功复制全部取件链接清单！');
+        showToast('✅ 已成功复制全部邮箱清单！');
       });
     }
   });
+
+  // Domain Wizard Pool Generator Event Bindings
+  bindEvent('wizard-pool-type', 'change', updateWizardPool);
+  bindEvent('wizard-pool-prefix', 'input', updateWizardPool);
+  bindEvent('wizard-pool-count', 'change', updateWizardPool);
+  bindEvent('wizard-pool-format', 'change', updateWizardPool);
+  bindClick('btn-regen-pool', updateWizardPool);
+  bindClick('btn-copy-wizard-pool', copyWizardPool);
 }
 
 function initExportLinksModal() {
@@ -582,6 +596,7 @@ function initExportLinksModal() {
 function updateExportLinks() {
   const groupSelect = document.getElementById('export-group-select');
   const domainInput = document.getElementById('export-domain-input');
+  const formatSelect = document.getElementById('export-format-select');
   const textarea = document.getElementById('export-links-textarea');
   const countEl = document.getElementById('export-total-count');
 
@@ -593,6 +608,7 @@ function updateExportLinks() {
   const selectedGroup = groupSelect ? groupSelect.value : '__all__';
   let domain = (domainInput ? domainInput.value.trim() : '') || window.location.origin;
   domain = domain.replace(/\/+$/, '');
+  const format = formatSelect ? formatSelect.value : 'pool_link';
 
   let aliasesList = [];
   state.stats.groups.forEach(g => {
@@ -615,8 +631,14 @@ function updateExportLinks() {
   }
 
   const formattedLines = aliasesList.map(addr => {
-    const pickupUrl = `${domain}/mailboxes/${encodeURIComponent(addr)}`;
-    return `${addr}----${pickupUrl}`;
+    if (format === 'pure_email') {
+      return addr;
+    } else if (format === 'pool_api') {
+      return `${addr}----${domain}/api/v1/codes/latest?to=${encodeURIComponent(addr)}&timeout=30`;
+    } else {
+      const pickupUrl = `${domain}/mailboxes/${encodeURIComponent(addr)}`;
+      return `${addr}----${pickupUrl}`;
+    }
   });
 
   if (textarea) textarea.value = formattedLines.join('\n');
@@ -627,7 +649,7 @@ function updateWizardContent() {
   const domain = (domainInput ? domainInput.value.trim() : '') || 'mydomain.com';
   const apiHost = window.location.origin || 'http://YOUR_SERVER_IP:8000';
 
-  // 1. Generate example Apple ID emails
+  // 1. Generate example Apple ID emails with dual copy options (纯邮箱 / 邮箱池格式)
   const chipsContainer = document.getElementById('wizard-email-chips');
   if (chipsContainer) {
     const examples = [
@@ -637,12 +659,20 @@ function updateWizardContent() {
       `vip@${domain}`,
       `anything@${domain}`
     ];
-    chipsContainer.innerHTML = examples.map(e => `
-      <span class="email-chip" title="点击复制" onclick="navigator.clipboard.writeText('${e}').then(()=>showToast('已复制: ${e}'))">
-        <span>✉️ ${e}</span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-      </span>
-    `).join('');
+    chipsContainer.innerHTML = examples.map(e => {
+      const poolFormat = `${e}----${apiHost}/mailboxes/${encodeURIComponent(e)}`;
+      return `
+        <div class="email-chip">
+          <span class="chip-addr" onclick="navigator.clipboard.writeText('${e}').then(()=>showToast('已复制纯邮箱: ${e}'))" title="点击复制纯邮箱地址">
+            <span>✉️ ${e}</span>
+          </span>
+          <div class="chip-actions">
+            <button type="button" class="chip-btn" onclick="navigator.clipboard.writeText('${e}').then(()=>showToast('已复制纯邮箱: ${e}'))" title="复制纯邮箱">复制</button>
+            <button type="button" class="chip-btn chip-btn-pool" onclick="navigator.clipboard.writeText('${poolFormat}').then(()=>showToast('已复制邮箱池格式: ${poolFormat}'))" title="复制标准邮箱池格式: 邮箱----取件链接">🔗 邮箱池</button>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // 2. Generate Cloudflare Worker Code
@@ -674,6 +704,79 @@ function updateWizardContent() {
   const mxValEl = document.getElementById('wizard-mx-val');
   if (mxValEl) {
     mxValEl.innerText = `mail.${domain} (指向您的服务器IP)`;
+  }
+
+  // 4. Update Mailbox Pool generator
+  updateWizardPool();
+}
+
+function updateWizardPool() {
+  const domainInput = document.getElementById('wizard-domain-input');
+  const domain = (domainInput ? domainInput.value.trim() : '') || 'mydomain.com';
+  const apiHost = window.location.origin || 'http://YOUR_SERVER_IP:8000';
+
+  const typeEl = document.getElementById('wizard-pool-type');
+  const prefixEl = document.getElementById('wizard-pool-prefix');
+  const countEl = document.getElementById('wizard-pool-count');
+  const formatEl = document.getElementById('wizard-pool-format');
+  const textarea = document.getElementById('wizard-pool-textarea');
+  const countBadge = document.getElementById('wizard-pool-count-badge');
+
+  const type = typeEl ? typeEl.value : 'prefix_seq';
+  const rawPrefix = (prefixEl ? prefixEl.value.trim() : '') || 'apple';
+  const count = parseInt(countEl ? countEl.value : '10') || 10;
+  const format = formatEl ? formatEl.value : 'pool_link';
+
+  if (countBadge) countBadge.innerText = `${count} 个邮箱`;
+
+  const randomStr = (len = 5) => {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let res = '';
+    for (let i = 0; i < len; i++) {
+      res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return res;
+  };
+
+  const nameWords = ['user', 'bot', 'vip', 'member', 'service', 'dev', 'agent', 'team', 'account', 'client'];
+
+  const generatedEmails = [];
+  for (let i = 1; i <= count; i++) {
+    let localPart = '';
+    if (type === 'prefix_seq') {
+      const numStr = String(i).padStart(2, '0');
+      localPart = `${rawPrefix}${numStr}`;
+    } else if (type === 'random_str') {
+      localPart = `${rawPrefix ? rawPrefix + '_' : ''}${randomStr(5)}`;
+    } else if (type === 'name_seq') {
+      const word = nameWords[(i - 1) % nameWords.length];
+      localPart = `${word}${i}`;
+    }
+    generatedEmails.push(`${localPart}@${domain}`);
+  }
+
+  const lines = generatedEmails.map(addr => {
+    if (format === 'pure_email') {
+      return addr;
+    } else if (format === 'pool_api') {
+      return `${addr}----${apiHost}/api/v1/codes/latest?to=${encodeURIComponent(addr)}&timeout=30`;
+    } else {
+      // Standard pool link format: email----pickup_url
+      return `${addr}----${apiHost}/mailboxes/${encodeURIComponent(addr)}`;
+    }
+  });
+
+  if (textarea) {
+    textarea.value = lines.join('\n');
+  }
+}
+
+function copyWizardPool() {
+  const textarea = document.getElementById('wizard-pool-textarea');
+  if (textarea && textarea.value) {
+    navigator.clipboard.writeText(textarea.value).then(() => {
+      showToast('✅ 已成功复制批量邮箱池！可直接粘贴至注册机/脚本使用');
+    });
   }
 }
 
