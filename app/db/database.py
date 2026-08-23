@@ -353,6 +353,19 @@ async def clear_all_emails(to_address: Optional[str] = None, forwarded_by: Optio
         await db.commit()
         return cursor.rowcount
 
+async def delete_mailboxes(to_addresses: list[str]) -> int:
+    """批量删除指定的收件人邮箱及其所有关联邮件与验证码"""
+    if not to_addresses:
+        return 0
+    addrs = [a.strip() for a in to_addresses if a.strip()]
+    if not addrs:
+        return 0
+    async with get_db_connection() as db:
+        placeholders = ",".join("?" for _ in addrs)
+        cursor = await db.execute(f"DELETE FROM emails WHERE to_address IN ({placeholders})", addrs)
+        await db.commit()
+        return cursor.rowcount
+
 async def get_latest_code(
     to_address: Optional[str] = None,
     forwarded_by: Optional[str] = None,

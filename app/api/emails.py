@@ -3,8 +3,12 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException, Response
 from app.db.database import (
     get_emails, count_emails, get_email_by_id,
-    mark_email_read, delete_email, clear_all_emails
+    mark_email_read, delete_email, clear_all_emails, delete_mailboxes
 )
+from pydantic import BaseModel
+
+class BatchDeleteMailboxesRequest(BaseModel):
+    mailboxes: list[str]
 
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
@@ -90,4 +94,16 @@ async def batch_clear_emails(
     return {
         "success": True,
         "deleted_count": deleted_count
+    }
+
+@router.post("/batch-delete-mailboxes")
+async def batch_delete_mailboxes_endpoint(req: BatchDeleteMailboxesRequest):
+    """批量删除指定的收件人邮箱及其所有关联邮件与验证码"""
+    if not req.mailboxes:
+        return {"success": True, "deleted_count": 0, "message": "未指定要删除的邮箱"}
+    deleted_count = await delete_mailboxes(req.mailboxes)
+    return {
+        "success": True,
+        "deleted_count": deleted_count,
+        "deleted_mailboxes": req.mailboxes
     }

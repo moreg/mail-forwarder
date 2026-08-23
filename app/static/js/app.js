@@ -576,6 +576,15 @@ function setupModals() {
   bindEvent('wizard-pool-format', 'change', updateWizardPool);
   bindClick('btn-regen-pool', updateWizardPool);
   bindClick('btn-copy-wizard-pool', copyWizardPool);
+
+  // Manage & Batch Delete Mailboxes Modal Bindings
+  bindClick('btn-manage-mailboxes', openManageMailboxesModal);
+  bindClick('btn-close-manage-mailboxes', closeManageMailboxesModal);
+  bindClick('btn-cancel-manage-mailboxes', closeManageMailboxesModal);
+  bindEvent('manage-mailboxes-search', 'input', renderManageMailboxesTable);
+  bindEvent('manage-mailboxes-group-filter', 'change', renderManageMailboxesTable);
+  bindEvent('manage-check-all', 'change', toggleCheckAllManageMailboxes);
+  bindClick('btn-confirm-batch-delete-mailboxes', executeBatchDeleteMailboxes);
 }
 
 function initExportLinksModal() {
@@ -634,9 +643,9 @@ function updateExportLinks() {
     if (format === 'pure_email') {
       return addr;
     } else if (format === 'pool_api') {
-      return `${addr}----${domain}/api/v1/codes/latest?to=${encodeURIComponent(addr)}&timeout=30`;
+      return `${addr}----${domain}/api/v1/codes/latest?to=${addr}&timeout=30`;
     } else {
-      const pickupUrl = `${domain}/mailboxes/${encodeURIComponent(addr)}`;
+      const pickupUrl = `${domain}/mailboxes/${addr}`;
       return `${addr}----${pickupUrl}`;
     }
   });
@@ -660,7 +669,7 @@ function updateWizardContent() {
       `anything@${domain}`
     ];
     chipsContainer.innerHTML = examples.map(e => {
-      const poolFormat = `${e}----${apiHost}/mailboxes/${encodeURIComponent(e)}`;
+      const poolFormat = `${e}----${apiHost}/mailboxes/${e}`;
       return `
         <div class="email-chip">
           <span class="chip-addr" onclick="navigator.clipboard.writeText('${e}').then(()=>showToast('已复制纯邮箱: ${e}'))" title="点击复制纯邮箱地址">
@@ -759,10 +768,10 @@ function updateWizardPool() {
     if (format === 'pure_email') {
       return addr;
     } else if (format === 'pool_api') {
-      return `${addr}----${apiHost}/api/v1/codes/latest?to=${encodeURIComponent(addr)}&timeout=30`;
+      return `${addr}----${apiHost}/api/v1/codes/latest?to=${addr}&timeout=30`;
     } else {
       // Standard pool link format: email----pickup_url
-      return `${addr}----${apiHost}/mailboxes/${encodeURIComponent(addr)}`;
+      return `${addr}----${apiHost}/mailboxes/${addr}`;
     }
   });
 
@@ -1051,6 +1060,7 @@ function renderGroupsTree(groups) {
             ${a.latest_code ? `<span class="mini-code-pill" title="最新验证码: ${escapeHtml(a.latest_code)}">${escapeHtml(a.latest_code)}</span>` : ''}
             <span class="badge-sm">${a.email_count}</span>
             <button class="btn-copy-alias-link" data-copy-link="${escapeHtml(a.to_address)}" title="复制该邮箱专属访客取件链接">🔗</button>
+            <button class="btn-delete-alias" data-delete-alias="${escapeHtml(a.to_address)}" data-count="${a.email_count}" title="删除此邮箱及其所有邮件">🗑️</button>
           </div>
         </div>
       `;
@@ -1130,7 +1140,7 @@ function renderGroupsTree(groups) {
       e.stopPropagation();
       const addr = btn.getAttribute('data-copy-link');
       if (addr) {
-        const pickupUrl = `${window.location.origin}/mailboxes/${encodeURIComponent(addr)}`;
+        const pickupUrl = `${window.location.origin}/mailboxes/${addr}`;
         const copyText = `${addr}----${pickupUrl}`;
         navigator.clipboard.writeText(copyText).then(() => {
           showToast(`已复制取件格式: ${addr}----${pickupUrl}`);
@@ -1138,6 +1148,224 @@ function renderGroupsTree(groups) {
       }
     });
   });
+
+  // 4. Single Alias Delete Button
+  container.querySelectorAll('.btn-delete-alias').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const addr = btn.getAttribute('data-delete-alias');
+      const count = btn.getAttribute('data-count') || '0';
+      if (!addr) return;
+      if (!confirm(`确定要删除邮箱 【${addr}】 及其所有的 ${count} 封邮件和验证码吗？此操作不可恢复。`)) return;
+      batchDeleteMailboxes([addr]);
+    });
+  });
+}
+
+// Batch delete mailboxes handler
+async function batchDeleteMailboxes(mailboxesList) {
+  if (!mailboxesList || mailboxesList.length === 0) return;
+  try {
+    const res = await apiFetch('/api/v1/emails/batch-delete-mailboxes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mailboxes: mailboxesList })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✅ 已成功删除 ${mailboxesList.length} 个邮箱 (清理 ${data.deleted_count} 封邮件)`);
+      if (mailboxesList.includes(state.selectedAlias)) {
+        state.selectedAlias = null;
+      }
+      state.selectedEmailId = null;
+      renderDetailEmpty();
+      await fetchStats();
+      await fetchEmails();
+      const modal = document.getElementById('modal-manage-mailboxes');
+      if (modal && modal.style.display !== 'none') {
+        renderManageMailboxesTable();
+      }
+    } else {
+      showToast('删除失败: ' + (data.message || '未知错误'));
+    }
+  } catch (err) {
+    showToast('删除失败: ' + err.message);
+  }
+}
+
+// Mailbox Management Modal Functions
+let manageMailboxesSelected = new Set();
+
+function openManageMailboxesModal() {
+  const modal = document.getElementById('modal-manage-mailboxes');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  manageMailboxesSelected.clear();
+
+  const groupSelect = document.getElementById('manage-mailboxes-group-filter');
+  if (groupSelect && state.stats && state.stats.groups) {
+    groupSelect.innerHTML = '<option value="__all__">全部分组</option>' +
+      state.stats.groups.map(g => `<option value="${escapeHtml(g.group_name)}">${escapeHtml(g.group_name)}</option>`).join('');
+  }
+
+  const searchInput = document.getElementById('manage-mailboxes-search');
+  if (searchInput) searchInput.value = '';
+
+  renderManageMailboxesTable();
+}
+
+function closeManageMailboxesModal() {
+  const modal = document.getElementById('modal-manage-mailboxes');
+  if (modal) modal.style.display = 'none';
+  manageMailboxesSelected.clear();
+}
+
+function getAllMailboxesFromStats() {
+  const list = [];
+  if (!state.stats || !state.stats.groups) return list;
+  state.stats.groups.forEach(g => {
+    (g.aliases || []).forEach(a => {
+      list.push({
+        to_address: a.to_address,
+        group_name: g.group_name,
+        email_count: a.email_count,
+        unread_count: a.unread_count,
+        latest_code: a.latest_code,
+        latest_service: a.latest_service,
+        last_seen: a.last_seen
+      });
+    });
+  });
+  return list;
+}
+
+function renderManageMailboxesTable() {
+  const tbody = document.getElementById('manage-mailboxes-tbody');
+  const searchInput = document.getElementById('manage-mailboxes-search');
+  const groupSelect = document.getElementById('manage-mailboxes-group-filter');
+  const checkAllBox = document.getElementById('manage-check-all');
+
+  if (!tbody) return;
+
+  const q = (searchInput ? searchInput.value.trim().toLowerCase() : '');
+  const selectedGroup = groupSelect ? groupSelect.value : '__all__';
+
+  let items = getAllMailboxesFromStats();
+  if (selectedGroup !== '__all__') {
+    items = items.filter(i => i.group_name === selectedGroup);
+  }
+  if (q) {
+    items = items.filter(i => i.to_address.toLowerCase().includes(q) || i.group_name.toLowerCase().includes(q));
+  }
+
+  if (items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px 0;">暂无可管理的域名邮箱</td></tr>`;
+    if (checkAllBox) checkAllBox.checked = false;
+    updateManageSelectedBadge();
+    return;
+  }
+
+  const allVisibleSelected = items.length > 0 && items.every(i => manageMailboxesSelected.has(i.to_address));
+  if (checkAllBox) checkAllBox.checked = allVisibleSelected;
+
+  tbody.innerHTML = items.map(item => {
+    const isChecked = manageMailboxesSelected.has(item.to_address);
+    const pickupUrl = `${window.location.origin}/mailboxes/${encodeURIComponent(item.to_address)}`;
+    return `
+      <tr class="${isChecked ? 'selected-row' : ''}">
+        <td style="text-align: center;">
+          <input type="checkbox" class="manage-item-checkbox" data-addr="${escapeHtml(item.to_address)}" ${isChecked ? 'checked' : ''}>
+        </td>
+        <td>
+          <div style="font-weight: 600; font-family: var(--font-mono); color: var(--primary-color); display: flex; align-items: center; gap: 6px;">
+            <span>${escapeHtml(item.to_address)}</span>
+            <a href="${pickupUrl}" target="_blank" class="btn-xs-icon" style="text-decoration: none;" title="打开此邮箱独立取件页">↗</a>
+          </div>
+        </td>
+        <td><span class="badge-sm" style="background-color: #f1f5f9;">${escapeHtml(item.group_name)}</span></td>
+        <td style="text-align: center;"><span class="badge-sm" style="background-color: #e0f2fe; color: #0284c7; font-weight: 700;">${item.email_count}</span></td>
+        <td>${item.latest_code ? `<span class="mini-code-pill">${escapeHtml(item.latest_code)}</span>` : '<span style="color: var(--text-muted);">-</span>'}</td>
+        <td style="color: var(--text-secondary); font-size: 11.5px;">${formatTime(item.last_seen)}</td>
+        <td style="text-align: right;">
+          <button type="button" class="btn btn-ghost btn-danger btn-sm btn-delete-single-table" data-addr="${escapeHtml(item.to_address)}" data-count="${item.email_count}" style="padding: 2px 8px; font-size: 11px;">删除</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Row checkbox click
+  tbody.querySelectorAll('.manage-item-checkbox').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const addr = cb.getAttribute('data-addr');
+      if (cb.checked) {
+        manageMailboxesSelected.add(addr);
+      } else {
+        manageMailboxesSelected.delete(addr);
+      }
+      renderManageMailboxesTable();
+    });
+  });
+
+  // Single delete button in table
+  tbody.querySelectorAll('.btn-delete-single-table').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const addr = btn.getAttribute('data-addr');
+      const count = btn.getAttribute('data-count') || '0';
+      if (!addr) return;
+      if (!confirm(`确定要删除邮箱 【${addr}】 及其所有的 ${count} 封邮件和验证码吗？`)) return;
+      batchDeleteMailboxes([addr]);
+    });
+  });
+
+  updateManageSelectedBadge();
+}
+
+function updateManageSelectedBadge() {
+  const selectedCountEl = document.getElementById('manage-mailboxes-selected-count');
+  const deleteBtn = document.getElementById('btn-confirm-batch-delete-mailboxes');
+  const count = manageMailboxesSelected.size;
+  if (selectedCountEl) selectedCountEl.innerText = `已选 ${count} 个`;
+  if (deleteBtn) {
+    deleteBtn.disabled = count === 0;
+    deleteBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+      批量删除所选邮箱 (${count})
+    `;
+  }
+}
+
+function toggleCheckAllManageMailboxes(e) {
+  const isChecked = e.target.checked;
+  const searchInput = document.getElementById('manage-mailboxes-search');
+  const groupSelect = document.getElementById('manage-mailboxes-group-filter');
+
+  const q = (searchInput ? searchInput.value.trim().toLowerCase() : '');
+  const selectedGroup = groupSelect ? groupSelect.value : '__all__';
+
+  let items = getAllMailboxesFromStats();
+  if (selectedGroup !== '__all__') {
+    items = items.filter(i => i.group_name === selectedGroup);
+  }
+  if (q) {
+    items = items.filter(i => i.to_address.toLowerCase().includes(q) || i.group_name.toLowerCase().includes(q));
+  }
+
+  if (isChecked) {
+    items.forEach(i => manageMailboxesSelected.add(i.to_address));
+  } else {
+    items.forEach(i => manageMailboxesSelected.delete(i.to_address));
+  }
+  renderManageMailboxesTable();
+}
+
+async function executeBatchDeleteMailboxes() {
+  const list = Array.from(manageMailboxesSelected);
+  if (list.length === 0) return;
+  if (!confirm(`⚠️ 批量删除确认：\n确定要永久删除选中的 ${list.length} 个域名邮箱及其全部邮件和验证码吗？\n此操作不可撤销！`)) {
+    return;
+  }
+  await batchDeleteMailboxes(list);
+  manageMailboxesSelected.clear();
 }
 
 // Detail cache to avoid repeated network fetching when switching back and forth between emails

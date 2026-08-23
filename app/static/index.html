@@ -99,7 +99,8 @@
         <div class="sidebar-section">
           <div class="section-title flex-between">
             <span>📂 转发邮箱分组</span>
-            <div class="section-actions">
+            <div class="section-actions" style="display: flex; gap: 4px; align-items: center;">
+              <button class="btn-xs-manage" id="btn-manage-mailboxes" title="管理与批量删除域名邮箱">🗑️ 批量管理</button>
               <span class="badge-sm" id="unique-groups-count">0</span>
               <button class="btn-xs-icon" id="btn-toggle-all-groups" title="展开/收起全部">⇕</button>
             </div>
@@ -552,6 +553,62 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             一键复制全部取件链接
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Manage & Batch Delete Mailboxes (域名邮箱管理与批量删除) -->
+    <div class="modal-backdrop" id="modal-manage-mailboxes" style="display: none;">
+      <div class="modal-card modal-lg">
+        <div class="modal-header">
+          <h3>🗑️ 域名邮箱管理与批量删除</h3>
+          <button class="btn-close" id="btn-close-manage-mailboxes">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 16px 20px;">
+          <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+            <div style="display: flex; gap: 8px; flex: 1; min-width: 280px;">
+              <input type="text" id="manage-mailboxes-search" class="form-input" placeholder="快速搜索域名邮箱/分组..." style="font-size: 12.5px;">
+              <select id="manage-mailboxes-group-filter" class="form-select" style="max-width: 190px; font-size: 12.5px;">
+                <option value="__all__">全部分组</option>
+              </select>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span class="badge-sm" id="manage-mailboxes-selected-count">已选 0 个</span>
+            </div>
+          </div>
+
+          <div class="manage-table-container">
+            <table class="manage-mailboxes-table">
+              <thead>
+                <tr>
+                  <th style="width: 38px; text-align: center;">
+                    <input type="checkbox" id="manage-check-all" title="全选/取消全选">
+                  </th>
+                  <th>收件邮箱地址 (Alias)</th>
+                  <th>所属母账号分组</th>
+                  <th style="text-align: center;">邮件数</th>
+                  <th>最新验证码</th>
+                  <th>最后收件时间</th>
+                  <th style="text-align: right;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="manage-mailboxes-tbody">
+                <!-- Generated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 12px; color: var(--text-muted);">
+            💡 勾选邮箱后点击删除，将同时清理这些邮箱关联的所有历史邮件及验证码。
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-outline" id="btn-cancel-manage-mailboxes">关闭</button>
+            <button class="btn btn-danger" id="btn-confirm-batch-delete-mailboxes" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              批量删除所选邮箱
+            </button>
+          </div>
         </div>
       </div>
     </div>

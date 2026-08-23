@@ -188,3 +188,36 @@ async def test_webhook_forwarded_by_and_direct_filtering():
     assert fwd_resp.json()["data"][0]["forwarded_by"] == "custom_forwarder@icloud.com"
     assert fwd_resp.json()["data"][0]["to_address"] == "test_alias@mydomain.com"
 
+@pytest.mark.asyncio
+async def test_batch_delete_mailboxes_api():
+    await init_db()
+    await clear_all_emails()
+
+    # Ingest 3 emails to 3 different mailboxes
+    for addr in ["user1@domain.com", "user2@domain.com", "keep@domain.com"]:
+        mail = (
+            "From: service@test.com\r\n"
+            f"To: {addr}\r\n"
+            f"Subject: Code for {addr}\r\n\r\n"
+            "Your code is 123456"
+        )
+        await process_incoming_email(mail)
+
+    # Verify 3 emails exist
+    resp = client.get("/api/v1/emails")
+    assert resp.json()["total"] == 3
+
+    # Batch delete user1 and user2
+    del_resp = client.post("/api/v1/emails/batch-delete-mailboxes", json={
+        "mailboxes": ["user1@domain.com", "user2@domain.com"]
+    })
+    assert del_resp.status_code == 200
+    assert del_resp.json()["success"] is True
+    assert del_resp.json()["deleted_count"] == 2
+
+    # Verify only keep@domain.com remains
+    resp_after = client.get("/api/v1/emails")
+    assert resp_after.json()["total"] == 1
+    assert resp_after.json()["data"][0]["to_address"] == "keep@domain.com"
+
+
