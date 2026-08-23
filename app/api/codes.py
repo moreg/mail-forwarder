@@ -4,8 +4,31 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from app.db.database import get_latest_code, get_codes
 from app.core.events import broadcaster
+from app.core.timeutil import utc_str_to_epoch
 
 router = APIRouter(prefix="/codes", tags=["Verification Codes"])
+
+
+def _code_payload(record: dict) -> dict:
+    """latest-code 响应体；time 为 epoch 秒，供取码客户端做新旧过滤。"""
+    return {
+        "success": True,
+        "found": True,
+        "code": record["code"],
+        "code_type": record["code_type"],
+        "service_name": record["service_name"],
+        "verification_url": record.get("verification_url", ""),
+        "to_address": record["to_address"],
+        "forwarded_by": record.get("forwarded_by", ""),
+        "group_name": record.get("group_name", ""),
+        "from_address": record.get("from_address", ""),
+        "subject": record.get("subject", ""),
+        "created_at": record["created_at"],
+        "time": utc_str_to_epoch(record["created_at"]),
+        "context_snippet": record.get("context_snippet", ""),
+        "email_id": record["email_id"],
+        "code_id": record["id"]
+    }
 
 @router.get("/latest")
 async def get_latest_verification_code(
@@ -29,23 +52,7 @@ async def get_latest_verification_code(
         after_id=after_id
     )
     if record:
-        return {
-            "success": True,
-            "found": True,
-            "code": record["code"],
-            "code_type": record["code_type"],
-            "service_name": record["service_name"],
-            "verification_url": record.get("verification_url", ""),
-            "to_address": record["to_address"],
-            "forwarded_by": record.get("forwarded_by", ""),
-            "group_name": record.get("group_name", ""),
-            "from_address": record.get("from_address", ""),
-            "subject": record.get("subject", ""),
-            "created_at": record["created_at"],
-            "context_snippet": record.get("context_snippet", ""),
-            "email_id": record["email_id"],
-            "code_id": record["id"]
-        }
+        return _code_payload(record)
 
     if timeout <= 0:
         target_desc = f"'{to or group or '任意'}'"
@@ -64,7 +71,7 @@ async def get_latest_verification_code(
             remaining = timeout - (time.time() - start_time)
             if remaining <= 0:
                 break
-            
+
             try:
                 # 挂起等待新邮件到达广播（最多等待 remaining 秒）
                 await asyncio.wait_for(queue.get(), timeout=remaining)
@@ -79,23 +86,7 @@ async def get_latest_verification_code(
                 after_id=after_id
             )
             if record:
-                return {
-                    "success": True,
-                    "found": True,
-                    "code": record["code"],
-                    "code_type": record["code_type"],
-                    "service_name": record["service_name"],
-                    "verification_url": record.get("verification_url", ""),
-                    "to_address": record["to_address"],
-                    "forwarded_by": record.get("forwarded_by", ""),
-                    "group_name": record.get("group_name", ""),
-                    "from_address": record.get("from_address", ""),
-                    "subject": record.get("subject", ""),
-                    "created_at": record["created_at"],
-                    "context_snippet": record.get("context_snippet", ""),
-                    "email_id": record["email_id"],
-                    "code_id": record["id"]
-                }
+                return _code_payload(record)
     finally:
         broadcaster.unsubscribe(queue)
 

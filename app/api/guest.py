@@ -5,12 +5,33 @@ from typing import Optional
 from fastapi import APIRouter, Request, Query, HTTPException, Response
 from fastapi.responses import HTMLResponse, FileResponse
 from app.core.config import settings, BASE_DIR
+from app.core.timeutil import utc_str_to_epoch as _utc_str_to_epoch
 from app.db.database import (
     get_emails, count_emails, get_email_by_id, get_latest_code, get_codes
 )
 from app.core.events import broadcaster
 
 router = APIRouter(prefix="/mailboxes", tags=["Guest Mailbox"])
+
+
+def _guest_code_payload(record: dict) -> dict:
+    """latest-code 响应体；time 为 epoch 秒，供取码客户端做新旧过滤。"""
+    return {
+        "success": True,
+        "found": True,
+        "code": record["code"],
+        "code_type": record["code_type"],
+        "service_name": record["service_name"],
+        "verification_url": record.get("verification_url", ""),
+        "to_address": record["to_address"],
+        "from_address": record.get("from_address", ""),
+        "subject": record.get("subject", ""),
+        "created_at": record["created_at"],
+        "time": _utc_str_to_epoch(record["created_at"]),
+        "context_snippet": record.get("context_snippet", ""),
+        "email_id": record["email_id"],
+        "code_id": record["id"]
+    }
 
 @router.get("/{email_address}")
 async def get_guest_mailbox_data(
@@ -47,6 +68,9 @@ async def get_guest_mailbox_data(
 
     code_val = latest_otp["code"] if latest_otp else None
     created_at_val = latest_otp["created_at"] if latest_otp else (emails[0]["created_at"] if emails else None)
+    # received_at / time 是取码客户端（generic_api 渠道）消费的新旧过滤字段，
+    # 必须是 epoch 秒；created_at 保留 UTC 字符串供前端展示。
+    epoch_val = _utc_str_to_epoch(created_at_val)
     service_val = latest_otp["service_name"] if latest_otp else None
     subject_val = latest_otp.get("subject") if latest_otp else (emails[0]["subject"] if emails else "")
 
@@ -55,8 +79,8 @@ async def get_guest_mailbox_data(
         msg_item = dict(e)
         msg_item["code"] = e.get("latest_code") or ""
         msg_item["otp"] = e.get("latest_code") or ""
-        msg_item["received_at"] = e.get("created_at") or ""
-        msg_item["time"] = e.get("created_at") or ""
+        msg_item["received_at"] = _utc_str_to_epoch(e.get("created_at")) or ""
+        msg_item["time"] = msg_item["received_at"]
         formatted_messages.append(msg_item)
 
     return {
@@ -65,8 +89,8 @@ async def get_guest_mailbox_data(
         "code": code_val,
         "otp": code_val,
         "created_at": created_at_val,
-        "received_at": created_at_val,
-        "time": created_at_val,
+        "received_at": epoch_val or "",
+        "time": epoch_val or "",
         "service": service_val,
         "subject": subject_val,
         "total_emails": total,
@@ -96,21 +120,7 @@ async def get_guest_latest_code(
         after_id=after_id
     )
     if record:
-        return {
-            "success": True,
-            "found": True,
-            "code": record["code"],
-            "code_type": record["code_type"],
-            "service_name": record["service_name"],
-            "verification_url": record.get("verification_url", ""),
-            "to_address": record["to_address"],
-            "from_address": record.get("from_address", ""),
-            "subject": record.get("subject", ""),
-            "created_at": record["created_at"],
-            "context_snippet": record.get("context_snippet", ""),
-            "email_id": record["email_id"],
-            "code_id": record["id"]
-        }
+        return _guest_code_payload(record)
 
     if timeout <= 0:
         return {
@@ -128,7 +138,7 @@ async def get_guest_latest_code(
             remaining = timeout - (time.time() - start_time)
             if remaining <= 0:
                 break
-            
+
             try:
                 await asyncio.wait_for(queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
@@ -140,21 +150,7 @@ async def get_guest_latest_code(
                 after_id=after_id
             )
             if record:
-                return {
-                    "success": True,
-                    "found": True,
-                    "code": record["code"],
-                    "code_type": record["code_type"],
-                    "service_name": record["service_name"],
-                    "verification_url": record.get("verification_url", ""),
-                    "to_address": record["to_address"],
-                    "from_address": record.get("from_address", ""),
-                    "subject": record.get("subject", ""),
-                    "created_at": record["created_at"],
-                    "context_snippet": record.get("context_snippet", ""),
-                    "email_id": record["email_id"],
-                    "code_id": record["id"]
-                }
+                return _guest_code_payload(record)
     finally:
         broadcaster.unsubscribe(queue)
 

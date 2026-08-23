@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from starlette.testclient import TestClient
 from app.main import app
@@ -100,7 +102,9 @@ async def test_turb_gpt_free_register_compatibility():
         "Content-Type: text/plain; charset=utf-8\r\n\r\n"
         "Your ChatGPT verification code is 639102. Please enter this code in the login prompt."
     )
+    ingest_t0 = time.time()
     await process_incoming_email(raw_openai_mail)
+    ingest_t1 = time.time()
 
     # 1. Test JSON Endpoint: /api/v1/mailboxes/{email}
     json_resp = client.get(f"/api/v1/mailboxes/{test_email}?json=1&summary=1")
@@ -113,6 +117,21 @@ async def test_turb_gpt_free_register_compatibility():
     code, meta = result
     assert code == "639102"
     assert meta["source"] in ("messages_list", "structured_api")
+
+    # 1b. after_ts 防旧码过滤（注册流程传 after_ts=注册开始时间，早于它的旧码必须被过滤）。
+    #     时间字段必须是无时区歧义的 epoch 秒：客户端会把无后缀时间字符串按其本地
+    #     时区解析，非 UTC 机器上会放行旧码（UTC-X）或误杀新码（UTC+X）。
+    stale_result = _extract_structured_api_code(json_text, after_ts=ingest_t1 + 60)
+    assert stale_result is None, f"旧验证码未被 after_ts 过滤: {stale_result}"
+
+    fresh_result = _extract_structured_api_code(json_text, after_ts=ingest_t0 - 60)
+    assert fresh_result is not None, "after_ts 早于邮件到达时间，却取不到新验证码"
+    fresh_code, fresh_meta = fresh_result
+    assert fresh_code == "639102"
+    assert fresh_meta["msg_ts"] is not None, "时间字段缺失或格式无法解析为时间戳"
+    assert ingest_t0 - 5 <= fresh_meta["msg_ts"] <= ingest_t1 + 5, (
+        f"msg_ts={fresh_meta['msg_ts']} 与入库时间 [{ingest_t0}, {ingest_t1}] 偏差过大（时区解析错误）"
+    )
 
     # 2. Test HTML Endpoint: /mailboxes/{email} (simulating direct web page scraping)
     html_resp = client.get(f"/mailboxes/{test_email}", headers={"Accept": "text/html"})
