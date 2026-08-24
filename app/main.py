@@ -9,8 +9,7 @@ if str(BASE_ROOT) not in sys.path:
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +20,6 @@ from app.db.database import init_db, cleanup_expired_emails, close_db
 from app.servers.smtp_server import smtp_manager
 from app.servers.imap_server import imap_manager
 from app.api.router import api_router
-from app.api.guest import guest_special_code_payload
 
 # Setup logging
 logging.basicConfig(
@@ -104,10 +102,7 @@ async def serve_index():
 @app.get("/mailboxes/{email_address}", include_in_schema=False)
 @app.get("/mail/{email_address}", include_in_schema=False)
 @app.get("/m/{email_address}", include_in_schema=False)
-async def serve_guest_mailbox_page(email_address: str, fmt: Optional[str] = Query(None, alias="format")):
-    # 特殊取码格式：注册工具直连短链拿精简 JSON（与 iCloud 隐私邮箱面板 ?format=special 对齐）
-    if (fmt or "").strip().lower() == "special":
-        return await guest_special_code_payload(email_address)
+async def serve_guest_mailbox_page(email_address: str):
     mailbox_html = static_path / "mailbox.html"
     return FileResponse(
         mailbox_html,

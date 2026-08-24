@@ -166,15 +166,3 @@ mail.logout()
 ```bash
 curl -X GET "http://127.0.0.1:8000/api/v1/codes/latest?to=user@yourdomain.com&timeout=30"
 ```
-
-### 4. 特殊取码格式 (format=special)
-
-访客短链页路由 `/mailboxes/{email}` 与 API 路由 `/api/v1/mailboxes/{email}` 追加 `?format=special` 后，固定只返回四个字段的精简 JSON（与 iCloud 隐私邮箱面板短链对齐），注册工具可直接解析：
-
-```json
-{"code":"123456","receivedAt":"2026-08-23T12:00:00Z","to":"user@example.com","from":"OpenAI"}
-```
-
-- `code`：最新验证码；`receivedAt`：收件时间（UTC RFC3339，`Z` 结尾）；`to`：当前邮箱地址；`from`：固定值 `OpenAI`。
-- 暂无验证码时返回 `{"status":"waiting"}`（HTTP 200），轮询脚本按 `status` 判断等待、按 `code` 取值。
-- 取码入口示例：`curl "http://127.0.0.1:8000/mailboxes/user@yourdomain.com?format=special"`

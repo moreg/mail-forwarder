@@ -6,33 +6,12 @@ from fastapi import APIRouter, Request, Query, HTTPException, Response
 from fastapi.responses import HTMLResponse, FileResponse
 from app.core.config import settings, BASE_DIR
 from app.core.timeutil import utc_str_to_epoch as _utc_str_to_epoch
-from app.core.timeutil import utc_str_to_rfc3339
 from app.db.database import (
     get_emails, count_emails, get_email_by_id, get_latest_code, get_codes
 )
 from app.core.events import broadcaster
 
 router = APIRouter(prefix="/mailboxes", tags=["Guest Mailbox"])
-
-# 特殊取码格式（format=special）中 from 字段的固定值，与注册工具约定一致，
-# 不随邮件实际发件人变化。
-SPECIAL_CODE_FROM = "OpenAI"
-
-
-async def guest_special_code_payload(email_address: str) -> dict:
-    """特殊取码格式：与 iCloud 隐私邮箱面板短链 ?format=special 对齐。
-    收到验证码时返回 code/receivedAt/to/from 四字段（code 为验证码、receivedAt 为
-    收件时间 UTC RFC3339、to 为当前邮箱、from 为固定值）；暂无验证码时返回
-    {"status": "waiting"}，与注册平台约定一致。"""
-    record = await get_latest_code(to_address=email_address)
-    if not record:
-        return {"status": "waiting"}
-    return {
-        "code": record["code"],
-        "receivedAt": utc_str_to_rfc3339(record["created_at"]) or "",
-        "to": record.get("to_address") or email_address,
-        "from": SPECIAL_CODE_FROM,
-    }
 
 
 def _guest_code_payload(record: dict) -> dict:
@@ -60,19 +39,13 @@ async def get_guest_mailbox_data(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    search: Optional[str] = Query(None),
-    fmt: Optional[str] = Query(None, alias="format")
+    search: Optional[str] = Query(None)
 ):
     """
     访客邮箱接口：
     - 若浏览器直接访问 (Accept: text/html)，返回访客取件页面 HTML。
     - 若 API / 脚本请求，返回该邮箱的邮件列表及统计数据 JSON。
-    - ?format=special 时优先返回特殊取码格式（code/receivedAt/to/from）。
     """
-    # 特殊取码格式优先于 Accept 协商，注册工具直连短链即拿精简 JSON
-    if (fmt or "").strip().lower() == "special":
-        return await guest_special_code_payload(email_address)
-
     accept_header = request.headers.get("accept", "").lower()
     if "text/html" in accept_header:
         mailbox_html_file = BASE_DIR / "app" / "static" / "mailbox.html"
