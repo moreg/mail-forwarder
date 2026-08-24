@@ -78,6 +78,53 @@ async def test_guest_mailbox_page_and_api():
     assert "849201" in eml_resp.text
 
 @pytest.mark.asyncio
+async def test_guest_mailbox_special_format():
+    await init_db()
+    await clear_all_emails()
+
+    target_addr = "special.format_test@domain.com"
+    raw_mail = (
+        "From: noreply@openai.com\r\n"
+        f"To: {target_addr}\r\n"
+        "Subject: Your OpenAI verification code is 123456\r\n"
+        "\r\n"
+        "Your OpenAI verification code is 123456."
+    )
+    await process_incoming_email(raw_mail)
+
+    # 1. 短链页路由 /mailboxes/{email}?format=special 直接返回精简 JSON
+    page_special = client.get(f"/mailboxes/{target_addr}", params={"format": "special"})
+    assert page_special.status_code == 200
+    assert "application/json" in page_special.headers.get("content-type", "")
+    body = page_special.json()
+    assert set(body.keys()) == {"code", "receivedAt", "to", "from"}
+    assert body["code"] == "123456"
+    assert body["to"] == target_addr
+    assert body["from"] == "noreply@openai.com"
+    assert body["receivedAt"].endswith("Z") and "T" in body["receivedAt"]
+
+    # 2. API 路由 /api/v1/mailboxes/{email}?format=special 同样支持
+    api_special = client.get(f"/api/v1/mailboxes/{target_addr}", params={"format": "special"})
+    assert api_special.status_code == 200
+    api_body = api_special.json()
+    assert set(api_body.keys()) == {"code", "receivedAt", "to", "from"}
+    assert api_body["code"] == "123456"
+    assert api_body["to"] == target_addr
+
+    # 3. format=special 优先于浏览器 Accept：浏览器直接打开也返回 JSON
+    browser_special = client.get(
+        f"/mailboxes/{target_addr}",
+        params={"format": "special"},
+        headers={"Accept": "text/html"}
+    )
+    assert "application/json" in browser_special.headers.get("content-type", "")
+
+    # 4. 无验证码的邮箱返回固定四字段（空串占位，便于轮询脚本固定解析）
+    empty = client.get("/mailboxes/nobody@example.com", params={"format": "special"})
+    assert empty.status_code == 200
+    assert empty.json() == {"code": "", "receivedAt": "", "to": "nobody@example.com", "from": ""}
+
+@pytest.mark.asyncio
 async def test_turb_gpt_free_register_compatibility():
     await init_db()
     await clear_all_emails()
