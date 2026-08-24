@@ -20,13 +20,13 @@ SPECIAL_CODE_FROM = "OpenAI"
 
 
 async def guest_special_code_payload(email_address: str) -> dict:
-    """特殊取码格式：与 iCloud 隐私邮箱面板短链 ?format=special 对齐，
-    固定只返回 code/receivedAt/to/from 四个字段：code 为验证码、receivedAt 为
-    收件时间（UTC RFC3339）、to 为当前邮箱、from 为固定值；暂无验证码时
-    code/receivedAt 为空串，结构始终不变，便于注册工具用同一套结构轮询解析。"""
+    """特殊取码格式：与 iCloud 隐私邮箱面板短链 ?format=special 对齐。
+    收到验证码时返回 code/receivedAt/to/from 四字段（code 为验证码、receivedAt 为
+    收件时间 UTC RFC3339、to 为当前邮箱、from 为固定值）；暂无验证码时返回
+    {"status": "waiting"}，与注册平台约定一致。"""
     record = await get_latest_code(to_address=email_address)
     if not record:
-        return {"code": "", "receivedAt": "", "to": email_address, "from": SPECIAL_CODE_FROM}
+        return {"status": "waiting"}
     return {
         "code": record["code"],
         "receivedAt": utc_str_to_rfc3339(record["created_at"]) or "",

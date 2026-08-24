@@ -176,5 +176,5 @@ curl -X GET "http://127.0.0.1:8000/api/v1/codes/latest?to=user@yourdomain.com&ti
 ```
 
 - `code`：最新验证码；`receivedAt`：收件时间（UTC RFC3339，`Z` 结尾）；`to`：当前邮箱地址；`from`：固定值 `OpenAI`。
-- 暂无验证码时返回 `{"code":"","receivedAt":"","to":"邮箱地址","from":"OpenAI"}`，字段结构固定，便于轮询脚本统一解析。
+- 暂无验证码时返回 `{"status":"waiting"}`（HTTP 200），轮询脚本按 `status` 判断等待、按 `code` 取值。
 - 取码入口示例：`curl "http://127.0.0.1:8000/mailboxes/user@yourdomain.com?format=special"`

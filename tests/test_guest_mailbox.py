@@ -119,10 +119,10 @@ async def test_guest_mailbox_special_format():
     )
     assert "application/json" in browser_special.headers.get("content-type", "")
 
-    # 4. 无验证码的邮箱返回固定四字段（空串占位，便于轮询脚本固定解析）
+    # 4. 无验证码的邮箱返回 {"status":"waiting"}（注册平台约定）
     empty = client.get("/mailboxes/nobody@example.com", params={"format": "special"})
     assert empty.status_code == 200
-    assert empty.json() == {"code": "", "receivedAt": "", "to": "nobody@example.com", "from": "OpenAI"}
+    assert empty.json() == {"status": "waiting"}
 
 @pytest.mark.asyncio
 async def test_turb_gpt_free_register_compatibility():
