@@ -14,19 +14,24 @@ from app.core.events import broadcaster
 
 router = APIRouter(prefix="/mailboxes", tags=["Guest Mailbox"])
 
+# 特殊取码格式（format=special）中 from 字段的固定值，与注册工具约定一致，
+# 不随邮件实际发件人变化。
+SPECIAL_CODE_FROM = "OpenAI"
+
 
 async def guest_special_code_payload(email_address: str) -> dict:
     """特殊取码格式：与 iCloud 隐私邮箱面板短链 ?format=special 对齐，
-    固定只返回 code/receivedAt/to/from 四个字段；暂无验证码时对应字段为空串，
-    便于注册工具用同一套结构轮询解析。"""
+    固定只返回 code/receivedAt/to/from 四个字段：code 为验证码、receivedAt 为
+    收件时间（UTC RFC3339）、to 为当前邮箱、from 为固定值；暂无验证码时
+    code/receivedAt 为空串，结构始终不变，便于注册工具用同一套结构轮询解析。"""
     record = await get_latest_code(to_address=email_address)
     if not record:
-        return {"code": "", "receivedAt": "", "to": email_address, "from": ""}
+        return {"code": "", "receivedAt": "", "to": email_address, "from": SPECIAL_CODE_FROM}
     return {
         "code": record["code"],
         "receivedAt": utc_str_to_rfc3339(record["created_at"]) or "",
         "to": record.get("to_address") or email_address,
-        "from": record.get("from_address") or "",
+        "from": SPECIAL_CODE_FROM,
     }
 
 

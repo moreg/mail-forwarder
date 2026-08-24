@@ -100,7 +100,7 @@ async def test_guest_mailbox_special_format():
     assert set(body.keys()) == {"code", "receivedAt", "to", "from"}
     assert body["code"] == "123456"
     assert body["to"] == target_addr
-    assert body["from"] == "noreply@openai.com"
+    assert body["from"] == "OpenAI"
     assert body["receivedAt"].endswith("Z") and "T" in body["receivedAt"]
 
     # 2. API 路由 /api/v1/mailboxes/{email}?format=special 同样支持
@@ -122,7 +122,7 @@ async def test_guest_mailbox_special_format():
     # 4. 无验证码的邮箱返回固定四字段（空串占位，便于轮询脚本固定解析）
     empty = client.get("/mailboxes/nobody@example.com", params={"format": "special"})
     assert empty.status_code == 200
-    assert empty.json() == {"code": "", "receivedAt": "", "to": "nobody@example.com", "from": ""}
+    assert empty.json() == {"code": "", "receivedAt": "", "to": "nobody@example.com", "from": "OpenAI"}
 
 @pytest.mark.asyncio
 async def test_turb_gpt_free_register_compatibility():
